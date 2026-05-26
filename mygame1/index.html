@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parry Survival - Evolution</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">
+      <div id="hpBox">❤❤❤</div>
+      <div id="stageBox">Stage 1</div>
+      <div id="scoreBox">Parry 0 / 5</div>
+    </div>
+    <div id="menu" class="screen active">
+      <h1>Parry Survival</h1>
+      <button id="startBtn">게임 시작</button>
+      <button id="guideBtn">조작법</button>
+      <button id="rankBtn">등수 확인</button>
+    </div>
+    <div id="guide" class="screen">
+      <h2>조작법</h2>
+      <p>이동: WASD / 방향키 | 대쉬: Shift</p>
+      <hr>
+      <p><strong>[패링 키 설정]</strong></p>
+      <p><span style="color:#dfe6e9">●</span> J: 유도형 적 (추격)</p>
+      <p><span style="color:#ff9f43">●</span> K: 돌진형 적 (후퇴 후 돌격)</p>
+      <p><span style="color:#a29bfe">●</span> L: 습격형 적 (급가속 후 정지)</p>
+      <p style="color:#ff7675; font-size:14px;">※ 패링 실패 시 0.8초간 재사용 불가</p>
+      <button class="menuBtn">메뉴로 돌아가기</button>
+    </div>
+    <div id="gameOver" class="screen">
+      <h2>GAME OVER</h2>
+      <p id="finalScore">최종 점수: 0</p>
+      <button id="retryBtn">다시하기</button>
+      <button class="menuBtn">메뉴로 돌아가기</button>
+      <button id="rankBtn2">등수 확인하기</button>
+    </div>
+    <div id="rank" class="screen">
+      <h2>등수</h2>
+      <ol id="rankList"></ol>
+      <button class="menuBtn">메뉴로 돌아가기</button>
+    </div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
