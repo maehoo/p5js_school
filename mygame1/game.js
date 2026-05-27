@@ -4,14 +4,12 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// HTML 화면에 표시될 UI 요소들 연동
 const hpBox = document.getElementById('hpBox');
 const stageBox = document.getElementById('stageBox');
 const scoreBox = document.getElementById('scoreBox');
 const finalScore = document.getElementById('finalScore');
 const rankList = document.getElementById('rankList');
 
-// 자바스크립트로 왼쪽 위에 상시 노출될 콤보 전용 UI 박스 동적 생성
 const comboHtmlBox = document.createElement('div');
 comboHtmlBox.id = 'comboHtmlBox';
 comboHtmlBox.style.position = 'absolute';
@@ -23,7 +21,6 @@ comboHtmlBox.style.textShadow = '2px 2px 2px rgba(0,0,0,0.8)';
 comboHtmlBox.style.zIndex = '100';
 document.body.appendChild(comboHtmlBox);
 
-// 게임 시스템 제어 변수들
 let W=0, H=0;                  
 let worldW=0, worldH=0;        
 let mode='menu';               
@@ -38,16 +35,13 @@ let parryCount=0;
 let totalScore=0;              
 let needParry=5;               
 
-// 콤보 및 특수 기믹 스킬용 타이머
 let comboCount = 0;            
 let comboTimer = 0;            
 let kParrySkillTimer = 0;      
 let lParrySkillTimer = 0;      
 
-// 🌟 변경점 1: 초필살기 전체 화면 섬광(화이트아웃) 애니메이션용 투명도 변수 추가
 let ultimateFlash = 0;         
 
-// 카메라 시스템 변수
 let camX=0, camY=0;            
 let isCamInitialized=false;    
 
@@ -57,13 +51,13 @@ const PARRY_RANGE = 75;
 // [2] 화면 크기 고정 및 구조 초기화 함수
 // ==========================================
 function initCanvas(){
-    W = 1200; 
-    H = 1200; 
+    W = window.innerWidth; 
+    H = window.innerHeight; 
     
     canvas.width = W;
     canvas.height = H;
-    canvas.style.width = '1200px';
-    canvas.style.height = '1200px';
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
     canvas.style.display = 'block';
     
     let container = document.getElementById('gameContainer');
@@ -90,14 +84,30 @@ function initCanvas(){
     worldW = 2400; 
     worldH = 2400;
 }
+window.addEventListener('resize', () => { initCanvas(); });
 initCanvas(); 
 
 function screens(){return [...document.querySelectorAll('.screen')]}
 function hideScreens(){screens().forEach(s=>s.classList.remove('active'))}
-function openScreen(id){hideScreens();document.getElementById(id).classList.add('active')}
+function openScreen(id){
+    hideScreens();
+    const targetScreen = document.getElementById(id);
+    if(targetScreen) {
+        targetScreen.classList.add('active');
+    } else {
+        console.warn(`[안전 방어 발동] HTML에 id="${id}" 요소가 없어서 게임 오버 화면으로 대체합니다!`);
+        const fallbackScreen = document.getElementById('gameOver');
+        if(fallbackScreen) fallbackScreen.classList.add('active');
+    }
+}
 
 function bind(id,fn){const el=document.getElementById(id);if(el)el.addEventListener('click',fn)}
-bind('startBtn',startGame);bind('retryBtn',startGame);bind('guideBtn',()=>openScreen('guide'));bind('rankBtn',showRank);bind('rankBtn2',showRank);
+bind('startBtn',startGame);
+bind('retryBtn',startGame);
+bind('guideBtn',()=>openScreen('guide'));
+bind('rankBtn',showRank);
+bind('rankBtn2',showRank);
+
 document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',()=>{mode='menu';openScreen('menu')}));
 
 // ==========================================
@@ -144,7 +154,11 @@ addEventListener('keydown',e=>{
                 player.invincible = 0.3; 
                 comboTimer = 3; 
 
-                if(parryCount>=needParry){totalScore+=parryCount; parryCount=0; stage++; needParry+=3}
+                // 🌟 스테이지 3 클리어 체크
+                if(parryCount>=needParry){
+                    totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
+                    if(stage > 3) { gameClear(); return; }
+                }
                 kParrySkillTimer = 0; updateHud();
                 return; 
             }
@@ -189,18 +203,13 @@ addEventListener('keydown',e=>{
         }
     }
     
-    // ──────────────────────────────────────────
-    // 🌟 SPACE 키: 콤보 20개 소모형 전체 화면 절멸 필살기 기믹!!
-    // ──────────────────────────────────────────
     if (k === ' ' || e.code === 'Space') {
         if (comboCount >= 20) {
             comboCount -= 20; 
             comboTimer = 3;
 
-            // 🌟 변경점 2: 스페이스바 입력 순간 섬광 불투명도를 1.0(완전 불투명 순백)으로 세팅!
             ultimateFlash = 1.0; 
 
-            // 필드에 살아있는 모든 적 유닛들을 일망타진(전멸) 처리
             enemies.forEach(enemy => {
                 if (!enemy.dead) {
                     enemy.dead = true;
@@ -209,7 +218,11 @@ addEventListener('keydown',e=>{
                 }
             });
 
-            if(parryCount>=needParry){totalScore+=parryCount; parryCount=0; stage++; needParry+=3}
+            // 🌟 스테이지 3 클리어 체크
+            if(parryCount>=needParry){
+                totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
+                if(stage > 3) { gameClear(); return; }
+            }
             updateHud();
         }
     }
@@ -234,7 +247,7 @@ function startGame(){
     
     comboCount = 0; comboTimer = 0;
     kParrySkillTimer = 0; lParrySkillTimer = 0;
-    ultimateFlash = 0; // 🌟 시작 시 섬광 초기화
+    ultimateFlash = 0; 
 
     player={
         x:worldW/2, y:worldH/2, r:18, hp:3, 
@@ -292,7 +305,6 @@ function update(dt){
     if (kParrySkillTimer > 0) { kParrySkillTimer -= dt; if (kParrySkillTimer <= 0) updateHud(); }
     if (lParrySkillTimer > 0) { lParrySkillTimer -= dt; if (lParrySkillTimer <= 0) updateHud(); }
 
-    // 🌟 변경점 3: 초필살기 화면 흰색 섬광 타이머 실시간 감쇄 (약 0.8초 동안 스르륵 원래대로 돌아옴)
     if (ultimateFlash > 0) {
         ultimateFlash = Math.max(0, ultimateFlash - dt * 1.25); 
     }
@@ -397,7 +409,12 @@ function update(dt){
                     if (perpDist <= 100) { 
                         e.dead = true; parryCount++; comboCount++; comboTimer = 3;
                         effects.push({x: e.x, y: e.y, r: 60, t: 0.2, color: '#ffcd03'});
-                        if(parryCount >= needParry){totalScore += parryCount; parryCount = 0; stage++; needParry += 3}
+                        
+                        // 🌟 스테이지 3 클리어 체크 (파도 스킬 킬)
+                        if(parryCount >= needParry){
+                            totalScore += parryCount; parryCount = 0; stage++; needParry += 3;
+                            if(stage > 3) { gameClear(); }
+                        }
                         updateHud(); 
                     }
                 }
@@ -414,7 +431,12 @@ function update(dt){
             comboTimer = 3; 
 
             effects.push({x:player.x,y:player.y,r:70,t:.25,color:'#2ecc71'}); 
-            if(parryCount>=needParry){totalScore+=parryCount; parryCount=0; stage++; needParry+=3}
+            
+            // 🌟 스테이지 3 클리어 체크 (기본 패링 킬)
+            if(parryCount>=needParry){
+                totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
+                if(stage > 3) { gameClear(); }
+            }
             updateHud();
         } 
         else if(dist < e.r + player.r && player.invincible <= 0){
@@ -445,16 +467,31 @@ function update(dt){
 }
 
 // ==========================================
-// [7]  게임 오버 및 랭킹 기록 처리 함수
+// [7] 💀 죽었을 때: 게임 오버 화면 (기존)
 // ==========================================
 function gameOver(){
-    mode='over';
+    mode='over'; 
     const score = totalScore + parryCount;
     const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
     ranks.push(score); ranks.sort((a,b)=>b-a);
     localStorage.setItem('parryRanks',JSON.stringify(ranks.slice(0,10)));
-    finalScore.textContent=`최종 점수: ${score}`;
+    
+    if(finalScore) finalScore.textContent=`최종 점수: ${score}`;
     openScreen('gameOver');
+}
+
+// ==========================================
+// [7-2] 🏆 스테이지 3 돌파 시: 게임 클리어(엔딩 크레딧) 분기 함수 추가!
+// ==========================================
+function gameClear(){
+    mode='ending'; // 게임 루프 정지
+    const score = totalScore + parryCount;
+    const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
+    ranks.push(score); ranks.sort((a,b)=>b-a);
+    localStorage.setItem('parryRanks',JSON.stringify(ranks.slice(0,10)));
+    
+    // 강제로 교수님 요구사항인 endingCredit 화면을 열어줍니다!
+    openScreen('endingCredit');
 }
 
 // ==========================================
@@ -574,14 +611,12 @@ function draw(){
         ctx.lineWidth=5; ctx.beginPath(); ctx.arc(player.x,player.y,70,0,Math.PI*2); ctx.stroke();
     }
     drawPlayer(); 
-    ctx.restore(); // 인게임 카메라 시점 복원
+    ctx.restore(); 
 
-    // 🌟 변경점 4: 카메라 가상 좌표계 복원(restore) 뒤에 그려야 화면 전체 레이아웃을 완전히 가릴 수 있어 형!
-    // ultimateFlash가 0보다 클 때만 흰색 사각형 레이어를 실시간 투명도 비례로 덮어버림
     if (ultimateFlash > 0) {
         ctx.save();
         ctx.fillStyle = `rgba(255, 255, 255, ${ultimateFlash})`;
-        ctx.fillRect(0, 0, W, H); // 1200x1200px 화면 전체를 싹 화이트아웃
+        ctx.fillRect(0, 0, W, H); 
         ctx.restore();
     }
 }
