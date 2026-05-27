@@ -9,17 +9,21 @@
 <body>
   <div id="wrap">
     <canvas id="gameCanvas"></canvas>
-    <div id="hud">
+    
+    <div id="hud" style="display: none;">
       <div id="hpBox">❤❤❤</div>
       <div id="stageBox">Stage 1</div>
       <div id="scoreBox">Parry 0 / 5</div>
     </div>
+    
     <div id="menu" class="screen active">
       <h1>Parry Survival</h1>
       <button id="startBtn">게임 시작</button>
       <button id="guideBtn">조작법</button>
+      <button id="creatorsBtn">제작자</button>
       <button id="rankBtn">등수 확인</button>
     </div>
+    
     <div id="guide" class="screen">
       <h2>조작법</h2>
       <p>이동: WASD / 방향키 | 대쉬: Shift</p>
@@ -29,8 +33,22 @@
       <p><span style="color:#ff9f43">●</span> K: 돌진형 적 (후퇴 후 돌격)</p>
       <p><span style="color:#a29bfe">●</span> L: 습격형 적 (급가속 후 정지)</p>
       <p style="color:#ff7675; font-size:14px;">※ 패링 실패 시 0.8초간 재사용 불가</p>
+      <p style="color:#a29bfe; font-size:14px; font-weight:bold;">※ Space: 콤보 20 달성 시 화면 전체 폭발 필살기</p>
       <button class="menuBtn">메뉴로 돌아가기</button>
     </div>
+
+    <div id="creators" class="screen">
+      <h2>제작자</h2>
+      <br>
+      <h3 style="color: #4aa3ff;">👑 기획 및 개발</h3>
+      <p style="font-weight: bold; color: #ff9f43; font-size: 24px; margin: 10px 0;">서정우</p>
+      <p style="font-weight: bold; color: #ff9f43; font-size: 24px; margin: 10px 0;">이수찬</p>
+      <br>
+      <p style="color: #ccc;">2024-1 게임 프로그래밍 프로젝트</p>
+      <br>
+      <button class="menuBtn">메뉴로 돌아가기</button>
+    </div>
+    
     <div id="gameOver" class="screen">
       <h2>GAME OVER</h2>
       <p id="finalScore">최종 점수: 0</p>
@@ -38,11 +56,23 @@
       <button class="menuBtn">메뉴로 돌아가기</button>
       <button id="rankBtn2">등수 확인하기</button>
     </div>
+    
     <div id="rank" class="screen">
       <h2>등수</h2>
       <ol id="rankList"></ol>
       <button class="menuBtn">메뉴로 돌아가기</button>
     </div>
+
+    <div id="endingCredit" class="screen">
+      <h2 style="color: #eccc68;">STAGE CLEAR!</h2>
+      <p>끝없는 적들의 공세를 멋지게 막아내셨습니다.</p>
+      <br>
+      <h3 style="color: #4aa3ff;">👑 제작진</h3>
+      <p style="font-weight: bold; color: #ff9f43; font-size: 20px;">서정우, 이수찬</p>
+      <br>
+      <button class="menuBtn">메뉴로 돌아가기</button>
+    </div>
+
   </div>
   <script src="game.js"></script>
 </body>
