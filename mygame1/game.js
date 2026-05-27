@@ -10,11 +10,12 @@ const scoreBox = document.getElementById('scoreBox');
 const finalScore = document.getElementById('finalScore');
 const rankList = document.getElementById('rankList');
 
+// 🌟 콤보 박스도 형의 CSS를 방해하지 않게 화면 고정(fixed)으로 따로 띄움!
 const comboHtmlBox = document.createElement('div');
 comboHtmlBox.id = 'comboHtmlBox';
-comboHtmlBox.style.position = 'absolute';
+comboHtmlBox.style.position = 'fixed';
 comboHtmlBox.style.left = '20px';
-comboHtmlBox.style.top = '100px'; 
+comboHtmlBox.style.top = '100px'; // 체력, 스테이지 박스 밑에 배치
 comboHtmlBox.style.font = 'bold 20px Arial';
 comboHtmlBox.style.color = '#ff9f43'; 
 comboHtmlBox.style.textShadow = '2px 2px 2px rgba(0,0,0,0.8)'; 
@@ -35,20 +36,22 @@ let parryCount=0;
 let totalScore=0;              
 let needParry=5;               
 
-let comboCount = 0;            
-let comboTimer = 0;            
-let kParrySkillTimer = 0;      
-let lParrySkillTimer = 0;      
-
+let comboCount = 0, comboTimer = 0;            
+let kParrySkillTimer = 0, lParrySkillTimer = 0;      
 let ultimateFlash = 0;         
 
-let camX=0, camY=0;            
-let isCamInitialized=false;    
-
+let camX=0, camY=0, isCamInitialized=false;    
 const PARRY_RANGE = 75;        
 
+// 🌟 HUD 표시/숨김 제어 함수 (CSS와 충돌 없이 깔끔하게 제어)
+function setHudVisibility(visible) {
+    const hud = document.getElementById('hud');
+    if (hud) hud.style.display = visible ? 'block' : 'none';
+    if (comboHtmlBox) comboHtmlBox.style.display = visible ? 'block' : 'none';
+}
+
 // ==========================================
-// [2] 화면 크기 고정 및 구조 초기화 함수
+// [2] 🌟 CSS 충돌 방지 클린 풀스크린 함수
 // ==========================================
 function initCanvas(){
     W = window.innerWidth; 
@@ -56,36 +59,22 @@ function initCanvas(){
     
     canvas.width = W;
     canvas.height = H;
+    
+    // 형의 DOM 구조를 뜯어고치지 않고, 캔버스만 브라우저 배경에 꽉 차게 고정!
+    canvas.style.position = 'fixed';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
     canvas.style.width = '100vw';
     canvas.style.height = '100vh';
-    canvas.style.display = 'block';
-    
-    let container = document.getElementById('gameContainer');
-    if(!container) {
-        container = document.createElement('div');
-        container.id = 'gameContainer';
-        container.style.position = 'relative'; 
-        container.style.width = '1200px';
-        container.style.height = '1200px';
-        container.style.margin = '0 auto';     
-        
-        canvas.parentNode.insertBefore(container, canvas);
-        container.appendChild(canvas);
-        
-        if(hpBox) container.appendChild(hpBox);
-        if(stageBox) container.appendChild(stageBox);
-        if(scoreBox) container.appendChild(scoreBox);
-    }
-    
-    if(hpBox) { hpBox.style.position = 'absolute'; hpBox.style.top = '20px'; hpBox.style.left = '20px'; hpBox.style.margin = '0'; hpBox.style.zIndex = '10'; }
-    if(stageBox) { stageBox.style.position = 'absolute'; stageBox.style.top = '20px'; stageBox.style.right = '20px'; stageBox.style.margin = '0'; stageBox.style.zIndex = '10'; }
-    if(scoreBox) { scoreBox.style.position = 'absolute'; scoreBox.style.top = '60px'; scoreBox.style.left = '20px'; scoreBox.style.margin = '0'; scoreBox.style.zIndex = '10'; }
+    canvas.style.zIndex = '0'; // 메뉴와 UI보다 항상 뒤에 깔리도록 설정
     
     worldW = 2400; 
     worldH = 2400;
 }
-window.addEventListener('resize', () => { initCanvas(); });
+// 창 크기가 바뀔 때 도화지 크기만 리사이즈함 (UI 건드리지 않음)
+window.addEventListener('resize', initCanvas);
 initCanvas(); 
+setHudVisibility(false); // 처음 접속 시 게임 화면이 아니므로 HUD 숨김
 
 function screens(){return [...document.querySelectorAll('.screen')]}
 function hideScreens(){screens().forEach(s=>s.classList.remove('active'))}
@@ -95,7 +84,6 @@ function openScreen(id){
     if(targetScreen) {
         targetScreen.classList.add('active');
     } else {
-        console.warn(`[안전 방어 발동] HTML에 id="${id}" 요소가 없어서 게임 오버 화면으로 대체합니다!`);
         const fallbackScreen = document.getElementById('gameOver');
         if(fallbackScreen) fallbackScreen.classList.add('active');
     }
@@ -105,10 +93,15 @@ function bind(id,fn){const el=document.getElementById(id);if(el)el.addEventListe
 bind('startBtn',startGame);
 bind('retryBtn',startGame);
 bind('guideBtn',()=>openScreen('guide'));
+bind('creatorsBtn',()=>openScreen('creators')); 
 bind('rankBtn',showRank);
 bind('rankBtn2',showRank);
 
-document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',()=>{mode='menu';openScreen('menu')}));
+document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',()=>{
+    mode='menu';
+    setHudVisibility(false); // 메뉴로 돌아가면 체력/점수창 끄기
+    openScreen('menu');
+}));
 
 // ==========================================
 // [3] 키보드 입력 핸들러 (패링 및 특수 스킬 제어)
@@ -154,7 +147,6 @@ addEventListener('keydown',e=>{
                 player.invincible = 0.3; 
                 comboTimer = 3; 
 
-                // 🌟 스테이지 3 클리어 체크
                 if(parryCount>=needParry){
                     totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
                     if(stage > 3) { gameClear(); return; }
@@ -218,7 +210,6 @@ addEventListener('keydown',e=>{
                 }
             });
 
-            // 🌟 스테이지 3 클리어 체크
             if(parryCount>=needParry){
                 totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
                 if(stage > 3) { gameClear(); return; }
@@ -256,6 +247,8 @@ function startGame(){
         parryType:null, parryTime:0, parryCooldown:0, 
         hasParriedAny: false, invincible:0
     };
+    
+    setHudVisibility(true); // 🌟 인게임 시작 시 HUD 켜기
     updateHud();
 }
 
@@ -410,7 +403,6 @@ function update(dt){
                         e.dead = true; parryCount++; comboCount++; comboTimer = 3;
                         effects.push({x: e.x, y: e.y, r: 60, t: 0.2, color: '#ffcd03'});
                         
-                        // 🌟 스테이지 3 클리어 체크 (파도 스킬 킬)
                         if(parryCount >= needParry){
                             totalScore += parryCount; parryCount = 0; stage++; needParry += 3;
                             if(stage > 3) { gameClear(); }
@@ -432,7 +424,6 @@ function update(dt){
 
             effects.push({x:player.x,y:player.y,r:70,t:.25,color:'#2ecc71'}); 
             
-            // 🌟 스테이지 3 클리어 체크 (기본 패링 킬)
             if(parryCount>=needParry){
                 totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
                 if(stage > 3) { gameClear(); }
@@ -466,11 +457,9 @@ function update(dt){
     effects=effects.filter(e=>e.t>0);
 }
 
-// ==========================================
-// [7] 💀 죽었을 때: 게임 오버 화면 (기존)
-// ==========================================
 function gameOver(){
     mode='over'; 
+    setHudVisibility(false); 
     const score = totalScore + parryCount;
     const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
     ranks.push(score); ranks.sort((a,b)=>b-a);
@@ -480,23 +469,16 @@ function gameOver(){
     openScreen('gameOver');
 }
 
-// ==========================================
-// [7-2] 🏆 스테이지 3 돌파 시: 게임 클리어(엔딩 크레딧) 분기 함수 추가!
-// ==========================================
 function gameClear(){
-    mode='ending'; // 게임 루프 정지
+    mode='ending'; 
+    setHudVisibility(false); 
     const score = totalScore + parryCount;
     const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
     ranks.push(score); ranks.sort((a,b)=>b-a);
     localStorage.setItem('parryRanks',JSON.stringify(ranks.slice(0,10)));
-    
-    // 강제로 교수님 요구사항인 endingCredit 화면을 열어줍니다!
     openScreen('endingCredit');
 }
 
-// ==========================================
-// [8] HUD 문자열 UI 실시간 업데이트 함수
-// ==========================================
 function updateHud(){
     if(!player)return;
     const hp = Math.max(0, player.hp);
@@ -521,9 +503,6 @@ function updateHud(){
 
 function showRank(){mode='rank';const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');if(rankList)rankList.innerHTML=ranks.length?ranks.map(s=>`<li>${s}점</li>`).join(''):'<li>기록 없음</li>';openScreen('rank')}
 
-// ==========================================
-// [9] 배경 격자(그리드 라인) 그래픽 드로우 함수
-// ==========================================
 function drawGrid(camX,camY){
     ctx.fillStyle='#202a38'; ctx.fillRect(0,0,W,H);
     ctx.save(); ctx.translate(-camX,-camY);
@@ -534,9 +513,6 @@ function drawGrid(camX,camY){
     ctx.restore();
 }
 
-// ==========================================
-// [10] 적 유닛 알맹이(도형) 그래픽 드로우 함수
-// ==========================================
 function drawEnemy(e){
     if(e.type === 'typeK' && e.state === 'wait') {
         ctx.save();
@@ -550,9 +526,6 @@ function drawEnemy(e){
     ctx.fillText(e.type.replace('type', ''), e.x, e.y);
 }
 
-// ==========================================
-// [11] 플레이어 보라색 도형 그래픽 드로우 함수
-// ==========================================
 function drawPlayer(){
     ctx.fillStyle=player.invincible>0?'#ff7070':'#a29bfe'; 
     ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
@@ -562,9 +535,6 @@ function drawPlayer(){
     }
 }
 
-// ==========================================
-// [12] 종합 프레임 화면 렌더링 총괄 함수
-// ==========================================
 function draw(){
     const px=player?player.x:worldW/2, py=player?player.y:worldH/2;
     
