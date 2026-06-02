@@ -37,11 +37,32 @@ let totalScore=0;
 let needParry=5;               
 
 let comboCount = 0, comboTimer = 0;            
-let kParrySkillTimer = 0, lParrySkillTimer = 0;      
+let kParrySkillTimer = 0, lParrySkillTimer = 0, jParrySkillTimer = 0;
+let lastDashDir = { x: 1, y: 0 };
+let firstDashDir = null;
 let ultimateFlash = 0;         
 
 let camX=0, camY=0, isCamInitialized=false;    
-const PARRY_RANGE = 75;        
+const PARRY_RANGE = 75;
+const ENEMY_R = 21;
+const BOSS_R = ENEMY_R * 3;
+const J_ENEMY_SPEED = 200 * 1.5 * 1.8;
+const BOSS_SPEED = J_ENEMY_SPEED * 0.5 * 0.7;
+const BOSS_ACTIVATE_KILLS = 5;
+const BOSS_ACTIVE_SPAWN_RATE = 0.4;
+const BOSS_HP = 8;
+const BOSS_ATTACK_RANGE = PARRY_RANGE * 6;
+const BOSS_ATTACK_FREQ_MULT = 1.2;
+const BOSS_WINDUP_TIME = 0.3 / BOSS_ATTACK_FREQ_MULT;
+const BOSS_RECOVERY_TIME = 0.2 / BOSS_ATTACK_FREQ_MULT;
+const BOSS_BULLET_SPEED = 1400 * 0.5;
+const BOSS_RED_ATTACK_CHANCE = 0.3;
+const BOSS_DEATH_DURATION = 1.6;
+
+let miniBoss = null;
+let enemyKillCount = 0;
+let bossBullets = [];
+let homingMissiles = [];        
 
 // 🌟 HUD 표시/숨김 제어 함수 (CSS와 충돌 없이 깔끔하게 제어)
 function setHudVisibility(visible) {
@@ -144,13 +165,10 @@ addEventListener('keydown',e=>{
 
                 effects.push({x: player.x, y: player.y, r: skillRange, t: 0.3, color: '#ff3838'}); 
                 
-                player.invincible = 0.3; 
-                comboTimer = 3; 
+                player.invincible = stage === 1 ? 0.5 : 0.3;
+                comboTimer = 3;
 
-                if(parryCount>=needParry){
-                    totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
-                    if(stage > 3) { gameClear(); return; }
-                }
+                advanceStageFromParries();
                 kParrySkillTimer = 0; updateHud();
                 return; 
             }
@@ -188,8 +206,35 @@ addEventListener('keydown',e=>{
             lParrySkillTimer = 0; updateHud();
             return; 
         }
+        else if (jParrySkillTimer > 0) {
+            const v = getInputDir();
+
+            player.dashTime = .168;
+            player.dashCooldown = .7;
+            effects.push({ x: player.x, y: player.y, r: 20, t: .22, color: '#4aa3ff' });
+
+            effects.push({
+                type: 'missile',
+                x: player.x,
+                y: player.y,
+                v: { x: v.x, y: v.y },
+                speed: 1400,
+                r: 14,
+                travel: 0,
+                maxDist: 1500,
+                t: 1.0
+            });
+            effects.push({ x: player.x, y: player.y, r: 40, t: 0.25, color: '#dfe6e9' });
+
+            player.invincible = 0.3;
+            comboTimer = 3;
+            jParrySkillTimer = 0;
+            updateHud();
+            return;
+        }
         
         if (player.dashCooldown <= 0) {
+            recordDashDir();
             player.dashTime=.168; player.dashCooldown=.7;
             effects.push({x:player.x,y:player.y,r:20,t:.22,color:'#4aa3ff'});
         }
@@ -209,11 +254,9 @@ addEventListener('keydown',e=>{
                     effects.push({x: enemy.x, y: enemy.y, r: 70, t: 0.2, color: '#ffcd03'});
                 }
             });
+            if (miniBoss && miniBoss.state === 'active') damageMiniBoss();
 
-            if(parryCount>=needParry){
-                totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
-                if(stage > 3) { gameClear(); return; }
-            }
+            advanceStageFromParries();
             updateHud();
         }
     }
@@ -237,8 +280,14 @@ function startGame(){
     enemies=[]; effects=[]; isCamInitialized=false;
     
     comboCount = 0; comboTimer = 0;
-    kParrySkillTimer = 0; lParrySkillTimer = 0;
-    ultimateFlash = 0; 
+    kParrySkillTimer = 0; lParrySkillTimer = 0; jParrySkillTimer = 0;
+    lastDashDir = { x: 1, y: 0 };
+    firstDashDir = null;
+    ultimateFlash = 0;
+    miniBoss = createMiniBoss();
+    enemyKillCount = 0;
+    bossBullets = [];
+    homingMissiles = [];
 
     player={
         x:worldW/2, y:worldH/2, r:18, hp:3, 
@@ -254,6 +303,295 @@ function startGame(){
 
 function unit(dx,dy){const d=Math.hypot(dx,dy)||1;return{x:dx/d,y:dy/d}}
 function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+
+function getInputDir(){
+    let mx = 0, my = 0;
+    if (keys.a || keys.arrowleft) mx--;
+    if (keys.d || keys.arrowright) mx++;
+    if (keys.w || keys.arrowup) my--;
+    if (keys.s || keys.arrowdown) my++;
+    if (mx !== 0 || my !== 0) return unit(mx, my);
+    if (firstDashDir) return { ...firstDashDir };
+    return { ...lastDashDir };
+}
+
+function recordDashDir(){
+    let mx = 0, my = 0;
+    if (keys.a || keys.arrowleft) mx--;
+    if (keys.d || keys.arrowright) mx++;
+    if (keys.w || keys.arrowup) my--;
+    if (keys.s || keys.arrowdown) my++;
+    if (mx === 0 && my === 0) mx = 1;
+    lastDashDir = unit(mx, my);
+    if (!firstDashDir) firstDashDir = { ...lastDashDir };
+}
+
+function createMiniBoss(){
+    return {
+        x: BOSS_R + 80,
+        y: BOSS_R + 80,
+        r: BOSS_R,
+        hp: BOSS_HP,
+        maxHp: BOSS_HP,
+        state: 'dormant',
+        attackState: 'idle',
+        attackTimer: 0,
+        parryHit: false,
+        nextShotRed: false
+    };
+}
+
+function activateMiniBoss(){
+    if (!miniBoss || miniBoss.state !== 'dormant') return;
+    miniBoss.state = 'active';
+    effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 1.5, t: 0.6, color: '#ffffff' });
+    updateHud();
+}
+
+function registerEnemyKill(){
+    if (stage !== 1 || !miniBoss || miniBoss.state !== 'dormant') return;
+    enemyKillCount++;
+    if (enemyKillCount >= BOSS_ACTIVATE_KILLS) activateMiniBoss();
+    updateHud();
+}
+
+function advanceStageFromParries(){
+    if (stage === 1) return;
+    if (parryCount < needParry) return;
+    totalScore += parryCount;
+    parryCount = 0;
+    stage++;
+    needParry += 3;
+    if (stage > 3) gameClear();
+    updateHud();
+}
+
+function damageMiniBoss(){
+    if (!miniBoss || miniBoss.state !== 'active') return;
+    miniBoss.hp--;
+    effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R + 20, t: 0.3, color: '#2ecc71' });
+    updateHud();
+    if (miniBoss.hp <= 0) startBossDefeat();
+}
+
+function startBossDefeat(){
+    if (!miniBoss || miniBoss.state === 'dying' || miniBoss.state === 'defeated') return;
+    miniBoss.state = 'dying';
+    miniBoss.hp = 0;
+    miniBoss.deathTimer = BOSS_DEATH_DURATION;
+    miniBoss.deathScale = 1;
+    miniBoss.deathAlpha = 1;
+    miniBoss.deathYOffset = 0;
+    miniBoss.particleTimer = 0;
+    miniBoss.attackState = 'idle';
+    bossBullets = [];
+    homingMissiles = [];
+    effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 2.2, t: 0.5, color: '#ffffff' });
+    effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 1.6, t: 0.7, color: '#eccc68' });
+    updateHud();
+}
+
+function updateBossDefeat(dt){
+    if (!miniBoss || miniBoss.state !== 'dying') return;
+
+    miniBoss.deathTimer -= dt;
+    const progress = 1 - Math.max(0, miniBoss.deathTimer / BOSS_DEATH_DURATION);
+    miniBoss.deathScale = 1 - progress * 0.75;
+    miniBoss.deathAlpha = 1 - progress * 0.9;
+    miniBoss.deathYOffset = progress * 50;
+
+    miniBoss.particleTimer = (miniBoss.particleTimer ?? 0) - dt;
+    if (miniBoss.particleTimer <= 0) {
+        miniBoss.particleTimer = 0.12;
+        effects.push({
+            x: miniBoss.x + (Math.random() - 0.5) * miniBoss.r,
+            y: miniBoss.y + miniBoss.deathYOffset + (Math.random() - 0.5) * miniBoss.r,
+            r: 25 + Math.random() * 35,
+            t: 0.35,
+            color: progress > 0.5 ? '#dfe6e9' : '#ffffff'
+        });
+    }
+
+    if (miniBoss.deathTimer <= 0) completeBossDefeat();
+}
+
+function completeBossDefeat(){
+    if (!miniBoss) return;
+    miniBoss = null;
+    stage = 2;
+    totalScore += parryCount;
+    parryCount = 0;
+    needParry = 8;
+    ultimateFlash = 0.6;
+    effects.push({ x: player.x, y: player.y, r: 120, t: 0.4, color: '#4aa3ff' });
+    updateHud();
+}
+
+function fireBossBullet(){
+    if (!miniBoss || miniBoss.state !== 'active') return;
+    const v = unit(player.x - miniBoss.x, player.y - miniBoss.y);
+    const isRed = miniBoss.nextShotRed;
+    bossBullets.push({
+        x: miniBoss.x,
+        y: miniBoss.y,
+        v: { x: v.x, y: v.y },
+        speed: BOSS_BULLET_SPEED,
+        r: 14,
+        travel: 0,
+        maxDist: 2000,
+        t: 1,
+        isRed
+    });
+    effects.push({
+        x: miniBoss.x, y: miniBoss.y, r: 50, t: 0.2,
+        color: isRed ? '#ff3838' : '#dfe6e9'
+    });
+    miniBoss.nextShotRed = false;
+}
+
+function spawnBossHomingMissile(){
+    if (!miniBoss || miniBoss.state !== 'active') return;
+    homingMissiles.push({
+        x: player.x,
+        y: player.y,
+        speed: 1100,
+        r: 12,
+        t: 1
+    });
+    effects.push({ x: player.x, y: player.y, r: 45, t: 0.25, color: '#ff9f43' });
+}
+
+function updateMiniBoss(dt){
+    if (!miniBoss || miniBoss.state !== 'active') return;
+
+    const dist = distance(miniBoss, player);
+
+    if (miniBoss.attackState === 'idle') {
+        const v = unit(player.x - miniBoss.x, player.y - miniBoss.y);
+        miniBoss.x += v.x * BOSS_SPEED * dt;
+        miniBoss.y += v.y * BOSS_SPEED * dt;
+        miniBoss.x = Math.max(miniBoss.r, Math.min(worldW - miniBoss.r, miniBoss.x));
+        miniBoss.y = Math.max(miniBoss.r, Math.min(worldH - miniBoss.r, miniBoss.y));
+
+        if (dist <= BOSS_ATTACK_RANGE) {
+            miniBoss.attackState = 'windup';
+            miniBoss.attackTimer = BOSS_WINDUP_TIME;
+            miniBoss.nextShotRed = Math.random() < BOSS_RED_ATTACK_CHANCE;
+        }
+    } else if (miniBoss.attackState === 'windup') {
+        miniBoss.attackTimer -= dt;
+        if (miniBoss.attackTimer <= 0) {
+            fireBossBullet();
+            miniBoss.attackState = 'recovery';
+            miniBoss.attackTimer = BOSS_RECOVERY_TIME;
+        }
+    } else if (miniBoss.attackState === 'recovery') {
+        miniBoss.attackTimer -= dt;
+        if (miniBoss.attackTimer <= 0) miniBoss.attackState = 'idle';
+    }
+
+    if (player.parryTime <= 0) miniBoss.parryHit = false;
+    else if (!miniBoss.parryHit && player.parryTime > 0 &&
+        (player.parryType === 'typeJ' || player.parryType === 'typeK' || player.parryType === 'typeL') &&
+        dist < PARRY_RANGE + miniBoss.r) {
+        miniBoss.parryHit = true;
+        player.hasParriedAny = true;
+        damageMiniBoss();
+        if (player.parryType === 'typeK' && stage !== 1) kParrySkillTimer = 1;
+        else if (player.parryType === 'typeL') lParrySkillTimer = 1;
+        else if (player.parryType === 'typeJ') jParrySkillTimer = 1;
+        if (comboTimer > 0) comboCount++;
+        else comboCount = 1;
+        comboTimer = 3;
+        updateHud();
+    }
+
+    if (dist < miniBoss.r + player.r && player.invincible <= 0) {
+        player.hp -= 2;
+        player.invincible = 0.9;
+        effects.push({ x: player.x, y: player.y, r: 75, t: 0.25, color: '#e74c3c' });
+        comboCount = 0;
+        comboTimer = 0;
+        kParrySkillTimer = 0;
+        lParrySkillTimer = 0;
+        jParrySkillTimer = 0;
+        updateHud();
+        if (player.hp <= 0) gameOver();
+    }
+}
+
+function updateBossBullets(dt){
+    bossBullets.forEach(b => {
+        b.x += b.v.x * b.speed * dt;
+        b.y += b.v.y * b.speed * dt;
+        b.travel += b.speed * dt;
+        if (b.travel >= b.maxDist) { b.t = 0; return; }
+
+        if (b.isRed && player.parryTime > 0 && player.parryType === 'typeJ' &&
+            distance(b, player) < PARRY_RANGE + b.r) {
+            b.t = 0;
+            player.hasParriedAny = true;
+            spawnBossHomingMissile();
+            effects.push({ x: b.x, y: b.y, r: 55, t: 0.25, color: '#ff3838' });
+            return;
+        }
+
+        if (player.invincible <= 0 && distance(b, player) < b.r + player.r) {
+            player.hp -= 1;
+            player.invincible = 0.9;
+            effects.push({ x: player.x, y: player.y, r: 60, t: 0.2, color: '#e74c3c' });
+            b.t = 0;
+            comboCount = 0;
+            comboTimer = 0;
+            kParrySkillTimer = 0;
+            lParrySkillTimer = 0;
+            jParrySkillTimer = 0;
+            updateHud();
+            if (player.hp <= 0) gameOver();
+        }
+    });
+    bossBullets = bossBullets.filter(b => b.t > 0 && b.travel < b.maxDist);
+}
+
+function updateHomingMissiles(dt){
+    if (!miniBoss || miniBoss.state !== 'active') {
+        homingMissiles = [];
+        return;
+    }
+    homingMissiles.forEach(m => {
+        const v = unit(miniBoss.x - m.x, miniBoss.y - m.y);
+        m.x += v.x * m.speed * dt;
+        m.y += v.y * m.speed * dt;
+        if (distance(m, miniBoss) < m.r + miniBoss.r) {
+            m.t = 0;
+            damageMiniBoss();
+            effects.push({ x: miniBoss.x, y: miniBoss.y, r: 70, t: 0.25, color: '#ff9f43' });
+        }
+    });
+    homingMissiles = homingMissiles.filter(m => m.t > 0);
+}
+
+function hitBossWithWave(ef){
+    if (ef.bossHit || !miniBoss || miniBoss.state !== 'active') return;
+    const dx = miniBoss.x - ef.startX;
+    const dy = miniBoss.y - ef.startY;
+    const proj = dx * ef.v.x + dy * ef.v.y;
+    const backDist = Math.max(0, ef.frontDist - ef.thickness);
+    const frontDist = ef.frontDist;
+    if (proj >= backDist && proj <= frontDist) {
+        const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x);
+        if (perpDist <= miniBoss.r + 40) {
+            ef.bossHit = true;
+            damageMiniBoss();
+        }
+    }
+}
+
+function removeDeadEnemies(){
+    const dead = enemies.filter(e => e.dead);
+    dead.forEach(() => registerEnemyKill());
+    enemies = enemies.filter(e => !e.dead);
+}
 
 // ==========================================
 // [5] 적 유닛 스폰(생성) 함수
@@ -297,6 +635,7 @@ function update(dt){
 
     if (kParrySkillTimer > 0) { kParrySkillTimer -= dt; if (kParrySkillTimer <= 0) updateHud(); }
     if (lParrySkillTimer > 0) { lParrySkillTimer -= dt; if (lParrySkillTimer <= 0) updateHud(); }
+    if (jParrySkillTimer > 0) { jParrySkillTimer -= dt; if (jParrySkillTimer <= 0) updateHud(); }
 
     if (ultimateFlash > 0) {
         ultimateFlash = Math.max(0, ultimateFlash - dt * 1.25); 
@@ -318,7 +657,23 @@ function update(dt){
     player.y=Math.max(player.r,Math.min(worldH-player.r,player.y));
 
     spawnTimer-=dt;
-    if(spawnTimer<=0){spawnEnemy();spawnTimer=Math.max(.45,1.2-stage*.08)}
+    if(spawnTimer<=0){
+        spawnEnemy();
+        let interval = Math.max(.45, 1.2 - stage * .08);
+        if (stage === 1 && miniBoss && miniBoss.state === 'active') {
+            interval /= BOSS_ACTIVE_SPAWN_RATE;
+        } else if (stage === 1 && miniBoss && miniBoss.state === 'dying') {
+            interval *= 2.5;
+        }
+        spawnTimer = interval;
+    }
+
+    updateBossDefeat(dt);
+    if (miniBoss && miniBoss.state === 'active') {
+        updateMiniBoss(dt);
+        updateBossBullets(dt);
+        updateHomingMissiles(dt);
+    }
 
     enemies.forEach(e=>{
         if (e.dead) return; 
@@ -403,10 +758,7 @@ function update(dt){
                         e.dead = true; parryCount++; comboCount++; comboTimer = 3;
                         effects.push({x: e.x, y: e.y, r: 60, t: 0.2, color: '#ffcd03'});
                         
-                        if(parryCount >= needParry){
-                            totalScore += parryCount; parryCount = 0; stage++; needParry += 3;
-                            if(stage > 3) { gameClear(); }
-                        }
+                        advanceStageFromParries();
                         updateHud(); 
                     }
                 }
@@ -418,43 +770,76 @@ function update(dt){
 
             if (e.type === 'typeK') { kParrySkillTimer = 1; }
             else if (e.type === 'typeL') { lParrySkillTimer = 1; }
+            else if (e.type === 'typeJ') { jParrySkillTimer = 1; }
 
             if (comboTimer > 0) { comboCount++; } else { comboCount = 1; }
             comboTimer = 3; 
 
             effects.push({x:player.x,y:player.y,r:70,t:.25,color:'#2ecc71'}); 
-            
-            if(parryCount>=needParry){
-                totalScore+=parryCount; parryCount=0; stage++; needParry+=3;
-                if(stage > 3) { gameClear(); }
-            }
+            advanceStageFromParries();
             updateHud();
         } 
         else if(dist < e.r + player.r && player.invincible <= 0){
-            player.hp -= e.type === 'typeK' ? 2 : 1; 
-            player.invincible = 0.9; e.dead = true; 
+            player.hp -= 1; 
+            player.invincible = 0.9; e.dead = true;
             effects.push({x:player.x,y:player.y,r:75,t:.25,color:'#e74c3c'}); 
             
             comboCount = 0; comboTimer = 0;
-            kParrySkillTimer = 0; lParrySkillTimer = 0; 
+            kParrySkillTimer = 0; lParrySkillTimer = 0;
+            jParrySkillTimer = 0;
 
             updateHud();
             if(player.hp <= 0) gameOver();
         }
     });
 
-    enemies=enemies.filter(e=>!e.dead);
+    effects.forEach(ef => {
+        if (ef.type === 'moving_wave') hitBossWithWave(ef);
+    });
+    removeDeadEnemies();
+
+    effects.forEach(ef => {
+        if (ef.type !== 'missile') return;
+        ef.x += ef.v.x * ef.speed * dt;
+        ef.y += ef.v.y * ef.speed * dt;
+        ef.travel += ef.speed * dt;
+        if (ef.travel >= ef.maxDist) { ef.t = 0; return; }
+
+        enemies.forEach(enemy => {
+            if (enemy.dead || ef.t <= 0) return;
+            if (distance(ef, enemy) < ef.r + enemy.r) {
+                enemy.dead = true;
+                parryCount++;
+                if (comboTimer > 0) comboCount++;
+                else comboCount = 1;
+                comboTimer = 3;
+                effects.push({ x: enemy.x, y: enemy.y, r: 60, t: 0.2, color: '#ffcd03' });
+                ef.t = 0;
+                advanceStageFromParries();
+                updateHud();
+            }
+        });
+        if (ef.t > 0 && miniBoss && miniBoss.state === 'active' &&
+            distance(ef, miniBoss) < ef.r + miniBoss.r) {
+            damageMiniBoss();
+            ef.t = 0;
+        }
+    });
+    removeDeadEnemies();
     
     effects.forEach(e => {
         if (e.type === 'moving_wave') {
             e.frontDist += e.speed * dt; 
             if (e.frontDist >= e.maxDist + e.thickness) { e.t = 0; } 
             else { e.t = 1.0; } 
-        } else {
+        } else if (e.type !== 'missile') {
             e.t -= dt; 
         }
     });
-    effects=effects.filter(e=>e.t>0);
+    effects = effects.filter(e => {
+        if (e.type === 'missile') return e.t > 0 && e.travel < e.maxDist;
+        return e.t > 0;
+    });
 }
 
 function gameOver(){
@@ -484,11 +869,24 @@ function updateHud(){
     const hp = Math.max(0, player.hp);
     hpBox.textContent='체력: '+'❤'.repeat(hp)+'♡'.repeat(Math.max(0, 3-hp));
     stageBox.textContent=`Stage ${stage}`;
-    scoreBox.textContent = stage===1?`Parry ${parryCount} / ${needParry}`:`Score ${totalScore+parryCount} | Parry ${parryCount} / ${needParry}`;
+    if (stage === 1 && miniBoss) {
+        if (miniBoss.state === 'dormant') {
+            scoreBox.textContent = `적 처치 ${enemyKillCount}/${BOSS_ACTIVATE_KILLS} | 보스 대기`;
+        } else if (miniBoss.state === 'dying') {
+            scoreBox.textContent = '보스 격파! Stage 2 이동 중...';
+        } else {
+            scoreBox.textContent = `보스 HP ${miniBoss.hp}/${miniBoss.maxHp} | Parry ${parryCount}/${needParry}`;
+        }
+    } else {
+        scoreBox.textContent = stage===1?`Parry ${parryCount} / ${needParry}`:`Score ${totalScore+parryCount} | Parry ${parryCount} / ${needParry}`;
+    }
     
     if (kParrySkillTimer > 0) {
         comboHtmlBox.textContent = `🔥 ${comboCount} COMBO!  [ ⚡ TELEPORT BURST! ]`;
         comboHtmlBox.style.color = '#ff3838'; 
+    } else if (jParrySkillTimer > 0) {
+        comboHtmlBox.textContent = `🔥 ${comboCount} COMBO!  [ 🚀 DASH MISSILE! ]`;
+        comboHtmlBox.style.color = '#dfe6e9';
     } else if (lParrySkillTimer > 0) {
         comboHtmlBox.textContent = `🔥 ${comboCount} COMBO!  [ 🌊 BLUE WAVE SHIFT! ]`;
         comboHtmlBox.style.color = '#4aa3ff'; 
@@ -511,6 +909,85 @@ function drawGrid(camX,camY){
     for(let y=0;y<=worldH;y+=100){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(worldW,y);ctx.stroke()}
     ctx.strokeStyle='#fff'; ctx.lineWidth=5; ctx.strokeRect(0,0,worldW,worldH); 
     ctx.restore();
+}
+
+function drawMiniBoss(){
+    if (!miniBoss) return;
+
+    const drawR = miniBoss.r * (miniBoss.deathScale ?? 1);
+    const drawY = miniBoss.y + (miniBoss.deathYOffset ?? 0);
+    const alpha = miniBoss.state === 'dormant' ? 0.35 : (miniBoss.deathAlpha ?? 1);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    if (miniBoss.state === 'dormant') {
+        ctx.fillStyle = '#888';
+    } else if (miniBoss.state === 'dying') {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = `rgba(236, 204, 104, ${0.4 + (1 - miniBoss.deathAlpha) * 0.6})`;
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.arc(miniBoss.x, drawY, drawR + 18, 0, Math.PI * 2);
+        ctx.stroke();
+    } else {
+        ctx.fillStyle = '#fff';
+        if (miniBoss.attackState === 'windup') {
+            ctx.strokeStyle = miniBoss.nextShotRed ? '#ff3838' : '#ff7675';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.arc(miniBoss.x, drawY, drawR + 12, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    ctx.beginPath();
+    ctx.arc(miniBoss.x, drawY, drawR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (miniBoss.state === 'active') {
+        const barW = miniBoss.r * 2;
+        const barH = 10;
+        const bx = miniBoss.x - barW / 2;
+        const by = miniBoss.y - miniBoss.r - 22;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(bx, by, barW, barH);
+        ctx.fillStyle = '#ff7675';
+        ctx.fillRect(bx, by, barW * (miniBoss.hp / miniBoss.maxHp), barH);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, barW, barH);
+    }
+}
+
+function drawBossBullet(b){
+    const tailX = b.x - b.v.x * b.r * 2.2;
+    const tailY = b.y - b.v.y * b.r * 2.2;
+    ctx.fillStyle = b.isRed ? '#ff3838' : '#dfe6e9';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = b.isRed ? '#c0392b' : '#636e72';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+}
+
+function drawHomingMissile(m){
+    if (!miniBoss || miniBoss.state !== 'active') return;
+    ctx.fillStyle = '#ff9f43';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#e17055';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(m.x, m.y);
+    ctx.lineTo(miniBoss.x, miniBoss.y);
+    ctx.stroke();
 }
 
 function drawEnemy(e){
@@ -551,7 +1028,10 @@ function draw(){
     if(!player) return;
     ctx.save(); ctx.translate(-camX,-camY);
     
+    drawMiniBoss();
     enemies.forEach(drawEnemy);
+    bossBullets.forEach(drawBossBullet);
+    homingMissiles.forEach(drawHomingMissile);
     
     effects.forEach(e=>{
         if (e.type === 'moving_wave') {
@@ -569,6 +1049,19 @@ function draw(){
             ctx.fillRect(backDist, -100, wLen, 200); 
             ctx.strokeRect(backDist, -100, wLen, 200);
             ctx.restore();
+        } else if (e.type === 'missile') {
+            const tailX = e.x - e.v.x * e.r * 2.2;
+            const tailY = e.y - e.v.y * e.r * 2.2;
+            ctx.fillStyle = '#dfe6e9';
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#b2bec3';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(tailX, tailY);
+            ctx.lineTo(e.x, e.y);
+            ctx.stroke();
         } else {
             ctx.globalAlpha=Math.max(0,e.t*4); ctx.strokeStyle=e.color; ctx.lineWidth=5;
             ctx.beginPath(); ctx.arc(e.x,e.y,e.r*(1.2-e.t),0,Math.PI*2); ctx.stroke();
