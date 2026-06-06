@@ -8,8 +8,13 @@ const ctx = canvas.getContext('2d');
 const bossAppearAudio = new Audio('assets/BossAppear.mp3');
 const bossSkillKAudio = new Audio('assets/BossSkillK.mp3');
 const bossSkillLAudio = new Audio('assets/BossSkillL.mp3');
+
 const stage1bossBackgroundSound = new Audio('assets/Stage1bossBackgroundSound.mp3');
+stage1bossBackgroundSound.loop = true; // 🌟 1스테이지 보스 음악 무한 루프 설정
+
 const stage2bossBackgroundSound = new Audio('assets/Stage2bossBackgroundSound.mp3');
+stage2bossBackgroundSound.loop = true; // 🌟 2스테이지 보스 음악 무한 루프 설정
+
 const playerSkillKAudio = new Audio('assets/playerSkillK.mp3');
 const playerSkillLAudio = new Audio('assets/playerSkillL.mp3');
 
@@ -192,10 +197,9 @@ bind('guideBackBtn', () => {
     openScreen('menu');
 });
 
+// 🌟 메뉴 버튼 클릭 시 화면 전환 수동 대입 대신 완전히 정지 로직이 포함된 returnToMenu 공통 함수를 사용하도록 수정
 document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',()=>{
-    mode='menu';
-    setHudVisibility(false); // 메뉴로 돌아가면 체력/점수창 끄기
-    openScreen('menu');
+    returnToMenu();
 }));
 
 // ==========================================
@@ -1702,6 +1706,12 @@ function resumeGame(){
 }
 
 function returnToMenu(){
+    // 🌟 메인 메뉴로 완전 이탈 시 재생 중이던 모든 보스 음악 즉시 제거
+    stage1bossBackgroundSound.pause();
+    stage1bossBackgroundSound.currentTime = 0;
+    stage2bossBackgroundSound.pause();
+    stage2bossBackgroundSound.currentTime = 0;
+
     mode = 'menu';
     guideReturnToPause = false;
     clearFade = 0;
