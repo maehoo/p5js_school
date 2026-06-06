@@ -4,6 +4,33 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Audio objects
+const bossAppearAudio = new Audio('assets/BossAppear.mp3');
+const bossSkillKAudio = new Audio('assets/BossSkillK.mp3');
+const bossSkillLAudio = new Audio('assets/BossSkillL.mp3');
+const stage1bossBackgroundSound = new Audio('assets/Stage1bossBackgroundSound.mp3');
+const stage2bossBackgroundSound = new Audio('assets/Stage2bossBackgroundSound.mp3');
+const playerSkillKAudio = new Audio('assets/playerSkillK.mp3');
+const playerSkillLAudio = new Audio('assets/playerSkillL.mp3');
+
+let clearTimer = 0;
+let clearFade = 0;
+let endingFade = 0;
+let creditScrollY = 0;
+let creditStartTimer = 0;
+let endingDoneTimer = 0;
+let guideReturnToPause = false;
+
+const CREDIT_LINES = [
+    '제작자1 : 서정우',
+    '제작자2 : 이수찬',
+    '스킬 이미지 : 이수찬',
+    '코드 작성 : 서정우',
+    '버그 수정 : 서정우 이수찬'
+];
+const CREDIT_LINE_HEIGHT = 56;
+const CREDIT_SCROLL_SPEED = 225;
+
 const hpBox = document.getElementById('hpBox');
 const stageBox = document.getElementById('stageBox');
 const scoreBox = document.getElementById('scoreBox');
@@ -35,6 +62,8 @@ let stage=1;
 let parryCount=0;              
 let totalScore=0;              
 let needParry=5;               
+let gameStartTime=0;          
+let selectedSkill=0;          
 
 let comboCount = 0, comboTimer = 0;            
 let kParrySkillTimer = 0, lParrySkillTimer = 0, jParrySkillTimer = 0;
@@ -50,7 +79,7 @@ const J_ENEMY_SPEED = 200 * 1.5 * 1.8;
 const BOSS_SPEED = J_ENEMY_SPEED * 0.5 * 0.7;
 const BOSS_ACTIVATE_KILLS = 5;
 const BOSS_ACTIVE_SPAWN_RATE = 0.4;
-const BOSS_HP = 8;
+const BOSS_HP = 1;
 const BOSS_ATTACK_RANGE = PARRY_RANGE * 6;
 const BOSS_ATTACK_FREQ_MULT = 1.2;
 const BOSS_WINDUP_TIME = 0.3 / BOSS_ATTACK_FREQ_MULT;
@@ -62,7 +91,35 @@ const BOSS_DEATH_DURATION = 1.6;
 let miniBoss = null;
 let enemyKillCount = 0;
 let bossBullets = [];
-let homingMissiles = [];        
+let homingMissiles = [];
+
+const PARRY_DIAMETER = PARRY_RANGE * 2;
+const FINAL_WARN_SIDE = PARRY_DIAMETER * 6;
+const FINAL_WARN_DURATION = 5;
+const FINAL_K_WARN_DURATION = 1;
+const FINAL_K_RECOVERY = 0;
+const FINAL_K_MINION_OFFSET = 100;
+const FINAL_RANDOM_SKILL_INTERVAL = 1.2;
+const FINAL_J_SKILL_CHANCE = 0.85;
+const FINAL_J_TRIPLE_CHANCE = 0.4;
+const FINAL_J_SPREAD_ANGLE = 0.38;
+const STAGE2_PLAYER_HP = 4;
+const FINAL_L_RECOVERY = 1;
+const FINAL_BOSS_HP = 5;
+const FINAL_BOSS_SPEED = J_ENEMY_SPEED / 8;
+const FINAL_BOSS_HALF = 130;
+const FINAL_BOSS_WAVE_THICKNESS = 600;
+const FINAL_J_SHOT_INTERVAL = 0.4;
+const FINAL_J_SHOT_CHANCE = 0.3;
+const FINAL_J_RED_CHANCE = 0.4;
+const FINAL_BOSS_BULLET_SPEED = 1200;
+
+let finalBoss = null;
+let finalBossPhase = null;
+let finalBossWarn = null;
+let finalBossKWarn = null;
+let finalBossBullets = [];
+let finalBossHoming = [];
 
 // 🌟 HUD 표시/숨김 제어 함수 (CSS와 충돌 없이 깔끔하게 제어)
 function setHudVisibility(visible) {
@@ -117,6 +174,23 @@ bind('guideBtn',()=>openScreen('guide'));
 bind('creatorsBtn',()=>openScreen('creators')); 
 bind('rankBtn',showRank);
 bind('rankBtn2',showRank);
+bind('pauseResumeBtn', resumeGame);
+bind('pauseMainBtn', () => returnToMenu());
+bind('pauseGuideBtn', () => {
+    guideReturnToPause = true;
+    openScreen('pauseMenu');
+});
+bind('guideBackBtn', () => {
+    if (guideReturnToPause) {
+        guideReturnToPause = false;
+        mode = 'paused';
+        openScreen('pauseMenu');
+        return;
+    }
+    mode = 'menu';
+    setHudVisibility(false);
+    openScreen('menu');
+});
 
 document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',()=>{
     mode='menu';
@@ -125,10 +199,61 @@ document.querySelectorAll('.menuBtn').forEach(btn=>btn.addEventListener('click',
 }));
 
 // ==========================================
+// [2.5] 스킬 선택 함수
+// ==========================================
+window.selectSkill = function(skillId) {
+    selectedSkill = skillId;
+    
+    // 스킬 효과 적용
+    if (skillId === 1) {
+        // 기본 이동속도 150%
+        player.speed = 260 * 1.5 * 0.7 * 1.5;
+    } else if (skillId === 2) {
+        // 이속 90%, 데미지 200%
+        player.speed = 260 * 1.5 * 0.7 * 0.9;
+        // 데미지 200%는 보스에게 더 많은 데미지를 주는 것으로 구현
+    } else if (skillId === 3) {
+        // 기술 쿨타임 50%
+        // 대쉬 쿨타임과 패링 쿨타임을 50%로 감소
+    }
+    
+    // 스킬 선택 후 stage 2로 진행
+    stage = 2;
+    player.maxHp = STAGE2_PLAYER_HP;
+    player.hp = STAGE2_PLAYER_HP;
+    ultimateFlash = 0.6;
+    effects.push({ x: player.x, y: player.y, r: 120, t: 0.4, color: '#4aa3ff' });
+    stage2bossBackgroundSound.currentTime = 0;
+    stage2bossBackgroundSound.play();
+    startFinalBossIntro();
+    
+    // 게임 재개
+    hideScreens();
+    mode='play';
+    setHudVisibility(true);
+    updateHud();
+};
+
+// ==========================================
 // [3] 키보드 입력 핸들러 (패링 및 특수 스킬 제어)
 // ==========================================
 addEventListener('keydown',e=>{
-    if(e.repeat) return; 
+    if(e.repeat) return;
+
+    if (e.key === 'Escape') {
+        if (mode === 'play') {
+            pauseGame();
+            return;
+        }
+        if (mode === 'paused') {
+            resumeGame();
+            return;
+        }
+        if (mode === 'ending') {
+            returnToMenu();
+            return;
+        }
+    }
     
     const k=e.key.toLowerCase();
     keys[k]=true;
@@ -147,9 +272,11 @@ addEventListener('keydown',e=>{
             });
 
             if (closestEnemy) {
-                effects.push({x: player.x, y: player.y, r: 50, t: 0.2, color: '#ff3838'}); 
-                
-                player.x = closestEnemy.x; 
+                effects.push({x: player.x, y: player.y, r: 50, t: 0.2, color: '#ff3838'});
+                playerSkillKAudio.currentTime = 0;
+                playerSkillKAudio.play();
+
+                player.x = closestEnemy.x;
                 player.y = closestEnemy.y;
                 
                 const skillRange = 300; 
@@ -179,13 +306,17 @@ addEventListener('keydown',e=>{
             if (keys.d || keys.arrowright) mx++;
             if (keys.w || keys.arrowup) my--;
             if (keys.s || keys.arrowdown) my++;
-            if (mx === 0 && my === 0) mx = 1; 
-            
-            const v = unit(mx, my); 
+            if (mx === 0 && my === 0) mx = 1;
 
-            player.dashTime = .168; 
-            player.dashCooldown = .7;
+            const v = unit(mx, my);
+
+            player.dashTime = .168;
+            player.dashCooldown = selectedSkill === 3 ? .35 : .7;
             effects.push({x: player.x, y: player.y, r: 20, t: .22, color: '#4aa3ff'});
+            playerSkillLAudio.currentTime = 0;
+            playerSkillLAudio.playbackRate = 1.0;
+            playerSkillLAudio.volume = 1.0;
+            playerSkillLAudio.play();
 
             effects.push({
                 type: 'moving_wave',
@@ -197,7 +328,8 @@ addEventListener('keydown',e=>{
                 thickness: 150,     
                 maxDist: 1500,      
                 t: 1.0,             
-                color: 'rgba(74, 163, 255, 0.4)'
+                color: 'rgba(74, 163, 255, 0.4)',
+                fromPlayer: true
             });
 
             player.invincible = 0.3; 
@@ -210,7 +342,7 @@ addEventListener('keydown',e=>{
             const v = getInputDir();
 
             player.dashTime = .168;
-            player.dashCooldown = .7;
+            player.dashCooldown = selectedSkill === 3 ? .35 : .7;
             effects.push({ x: player.x, y: player.y, r: 20, t: .22, color: '#4aa3ff' });
 
             effects.push({
@@ -235,7 +367,7 @@ addEventListener('keydown',e=>{
         
         if (player.dashCooldown <= 0) {
             recordDashDir();
-            player.dashTime=.168; player.dashCooldown=.7;
+            player.dashTime=.168; player.dashCooldown=selectedSkill === 3 ? .35 : .7;
             effects.push({x:player.x,y:player.y,r:20,t:.22,color:'#4aa3ff'});
         }
     }
@@ -255,6 +387,7 @@ addEventListener('keydown',e=>{
                 }
             });
             if (miniBoss && miniBoss.state === 'active') damageMiniBoss();
+            if (finalBoss && finalBossPhase === 'fight') damageFinalBoss();
 
             advanceStageFromParries();
             updateHud();
@@ -278,6 +411,8 @@ addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
 function startGame(){
     hideScreens(); mode='play'; stage=1; parryCount=0; totalScore=0; needParry=5; spawnTimer=.25;
     enemies=[]; effects=[]; isCamInitialized=false;
+    gameStartTime=Date.now();
+    selectedSkill=0;
     
     comboCount = 0; comboTimer = 0;
     kParrySkillTimer = 0; lParrySkillTimer = 0; jParrySkillTimer = 0;
@@ -288,9 +423,22 @@ function startGame(){
     enemyKillCount = 0;
     bossBullets = [];
     homingMissiles = [];
+    finalBoss = null;
+    finalBossPhase = null;
+    finalBossWarn = null;
+    finalBossKWarn = null;
+    finalBossBullets = [];
+    finalBossHoming = [];
+    clearTimer = 0;
+    clearFade = 0;
+    endingFade = 0;
+    creditScrollY = 0;
+    creditStartTimer = 0;
+    endingDoneTimer = 0;
+    guideReturnToPause = false;
 
     player={
-        x:worldW/2, y:worldH/2, r:18, hp:3, 
+        x:worldW/2, y:worldH/2, r:18, hp:3, maxHp:3,
         speed: 260 * 1.5 * 0.7, 
         dashTime:0, dashCooldown:0, 
         parryType:null, parryTime:0, parryCooldown:0, 
@@ -345,6 +493,8 @@ function activateMiniBoss(){
     if (!miniBoss || miniBoss.state !== 'dormant') return;
     miniBoss.state = 'active';
     effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 1.5, t: 0.6, color: '#ffffff' });
+    stage1bossBackgroundSound.currentTime = 0;
+    stage1bossBackgroundSound.play();
     updateHud();
 }
 
@@ -356,7 +506,7 @@ function registerEnemyKill(){
 }
 
 function advanceStageFromParries(){
-    if (stage === 1) return;
+    if (stage === 1 || stage >= 2) return;
     if (parryCount < needParry) return;
     totalScore += parryCount;
     parryCount = 0;
@@ -368,7 +518,8 @@ function advanceStageFromParries(){
 
 function damageMiniBoss(){
     if (!miniBoss || miniBoss.state !== 'active') return;
-    miniBoss.hp--;
+    const damage = selectedSkill === 2 ? 2 : 1;
+    miniBoss.hp -= damage;
     effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R + 20, t: 0.3, color: '#2ecc71' });
     updateHud();
     if (miniBoss.hp <= 0) startBossDefeat();
@@ -376,6 +527,11 @@ function damageMiniBoss(){
 
 function startBossDefeat(){
     if (!miniBoss || miniBoss.state === 'dying' || miniBoss.state === 'defeated') return;
+    
+    // 🌟 스테이지 1 보스 배경음악 정지
+    stage1bossBackgroundSound.pause();
+    stage1bossBackgroundSound.currentTime = 0;
+
     miniBoss.state = 'dying';
     miniBoss.hp = 0;
     miniBoss.deathTimer = BOSS_DEATH_DURATION;
@@ -386,6 +542,7 @@ function startBossDefeat(){
     miniBoss.attackState = 'idle';
     bossBullets = [];
     homingMissiles = [];
+    enemies = [];
     effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 2.2, t: 0.5, color: '#ffffff' });
     effects.push({ x: miniBoss.x, y: miniBoss.y, r: BOSS_R * 1.6, t: 0.7, color: '#eccc68' });
     updateHud();
@@ -418,13 +575,662 @@ function updateBossDefeat(dt){
 function completeBossDefeat(){
     if (!miniBoss) return;
     miniBoss = null;
-    stage = 2;
     totalScore += parryCount;
     parryCount = 0;
-    needParry = 8;
-    ultimateFlash = 0.6;
-    effects.push({ x: player.x, y: player.y, r: 120, t: 0.4, color: '#4aa3ff' });
+    enemies = [];
+    
+    // 스킬 선택 화면 표시
+    mode='skillSelect';
+    setHudVisibility(false);
+    openScreen('skillSelect');
+}
+
+function isInSquare(px, py, cx, cy, side){
+    const h = side / 2;
+    return Math.abs(px - cx) <= h && Math.abs(py - cy) <= h;
+}
+
+function drawRedWarningZone(warn){
+    if (!warn) return;
+    const progress = 1 - Math.max(0, warn.timer) / warn.duration;
+    const half = warn.side / 2;
+    ctx.fillStyle = 'rgba(255, 130, 130, 0.2)';
+    ctx.fillRect(warn.x - half, warn.y - half, warn.side, warn.side);
+    const innerSide = warn.side * progress;
+    const ih = innerSide / 2;
+    ctx.fillStyle = 'rgba(210, 45, 45, 0.55)';
+    ctx.fillRect(warn.x - ih, warn.y - ih, innerSide, innerSide);
+    ctx.strokeStyle = 'rgba(255, 70, 70, 0.85)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(warn.x - half, warn.y - half, warn.side, warn.side);
+}
+
+function startFinalBossIntro(){
+    finalBossPhase = 'warn';
+    finalBossWarn = {
+        x: worldW / 2,
+        y: worldH / 2,
+        side: FINAL_WARN_SIDE,
+        timer: FINAL_WARN_DURATION,
+        duration: FINAL_WARN_DURATION
+    };
+    finalBossKWarn = null;
+    finalBoss = null;
+    finalBossBullets = [];
+    finalBossHoming = [];
+}
+
+function updateFinalBossIntro(dt){
+    if (finalBossPhase !== 'warn' || !finalBossWarn) return;
+    finalBossWarn.timer -= dt;
+    if (finalBossWarn.timer > 0) return;
+
+    if (isInSquare(player.x, player.y, finalBossWarn.x, finalBossWarn.y, finalBossWarn.side) &&
+        player.invincible <= 0) {
+        player.hp -= 2;
+        player.invincible = 0.9;
+        effects.push({ x: player.x, y: player.y, r: 80, t: 0.3, color: '#e74c3c' });
+        if (player.hp <= 0) { gameOver(); return; }
+    }
+
+    finalBossWarn = null;
+    const cx = worldW / 2;
+    const cy = worldH / 2;
+    finalBoss = {
+        x: cx,
+        y: cy,
+        half: FINAL_BOSS_HALF,
+        hp: FINAL_BOSS_HP,
+        maxHp: FINAL_BOSS_HP,
+        state: 'idle',
+        color: 'gray',
+        farTimer: 0,
+        randomSkillCd: 0.5,
+        attackTimer: 0,
+        parryHit: false,
+        enraged: false,
+        kAttackCount: 0
+    };
+    finalBossPhase = 'fight';
+    effects.push({ x: cx, y: cy, r: FINAL_WARN_SIDE * 0.35, t: 0.75, color: '#ffffff' });
+    effects.push({ x: cx, y: cy, r: FINAL_BOSS_HALF * 2.5, t: 0.55, color: '#ff3838' });
+    effects.push({ x: cx, y: cy, r: FINAL_BOSS_HALF * 1.8, t: 0.45, color: '#eccc68' });
+    ultimateFlash = 0.55;
+    bossAppearAudio.currentTime = 0;
+    bossAppearAudio.play();
     updateHud();
+}
+
+function spawnKMinionAt(x, y){
+    enemies.push({
+        x, y, r: ENEMY_R, type: 'typeK', dead: false,
+        state: 'normal', stateTimer: 0, vx: 0, vy: 0, targetX: 0, targetY: 0
+    });
+    effects.push({ x, y, r: 50, t: 0.3, color: '#ff9f43' });
+}
+
+function spawnFinalBossKMinions(){
+    if (!finalBoss) return;
+    finalBoss.kAttackCount++;
+    
+    // 처음 K 공격일 때만 4개의 미니언 스폰
+    if (finalBoss.kAttackCount === 1) {
+        const dist = finalBoss.half + FINAL_K_MINION_OFFSET;
+        const spots = [
+            { x: finalBoss.x + dist, y: finalBoss.y },
+            { x: finalBoss.x - dist, y: finalBoss.y },
+            { x: finalBoss.x, y: finalBoss.y + dist },
+            { x: finalBoss.x, y: finalBoss.y - dist }
+        ];
+        spots.forEach(s => {
+            const x = Math.max(ENEMY_R, Math.min(worldW - ENEMY_R, s.x));
+            const y = Math.max(ENEMY_R, Math.min(worldH - ENEMY_R, s.y));
+            spawnKMinionAt(x, y);
+        });
+        effects.push({ x: finalBoss.x, y: finalBoss.y, r: dist + 40, t: 0.35, color: '#ff9f43' });
+    }
+}
+
+function distToFinalBoss(){
+    if (!finalBoss) return Infinity;
+    return distance(player, finalBoss);
+}
+
+function clampFinalBossPos(){
+    finalBoss.x = Math.max(finalBoss.half, Math.min(worldW - finalBoss.half, finalBoss.x));
+    finalBoss.y = Math.max(finalBoss.half, Math.min(worldH - finalBoss.half, finalBoss.y));
+}
+
+function damageFinalBoss(){
+    if (!finalBoss || finalBossPhase !== 'fight') return;
+    const damage = selectedSkill === 2 ? 2 : 1;
+    finalBoss.hp -= damage;
+    
+    // 체력이 2이하이고 아직 각성하지 않았으면 각성
+    if (finalBoss.hp <= 2 && !finalBoss.enraged) {
+        finalBoss.enraged = true;
+        finalBoss.color = 'red';
+        effects.push({ x: finalBoss.x, y: finalBoss.y, r: FINAL_BOSS_HALF * 3, t: 0.8, color: '#ff3838' });
+    }
+    
+    effects.push({ x: finalBoss.x, y: finalBoss.y, r: FINAL_BOSS_HALF + 30, t: 0.3, color: '#2ecc71' });
+    updateHud();
+    if (finalBoss.hp <= 0) {
+        startFinalBossDefeat();
+    }
+}
+
+function startFinalBossDefeat(){
+    if (!finalBoss || finalBossPhase !== 'fight') return;
+
+    // 🌟 스테이지 2 보스 배경음악 정지
+    stage2bossBackgroundSound.pause();
+    stage2bossBackgroundSound.currentTime = 0;
+
+    finalBossPhase = 'dying';
+    finalBoss.hp = 0;
+    finalBoss.deathTimer = BOSS_DEATH_DURATION;
+    finalBoss.deathScale = 1;
+    finalBoss.deathAlpha = 1;
+    finalBoss.deathYOffset = 0;
+    finalBoss.particleTimer = 0;
+
+    finalBossBullets = [];
+    finalBossHoming = [];
+    enemies = [];
+    clearTimer = 0;
+    clearFade = 0;
+
+    effects.push({ x: finalBoss.x, y: finalBoss.y, r: FINAL_BOSS_HALF * 2.2, t: 0.5, color: '#ffffff' });
+    effects.push({ x: finalBoss.x, y: finalBoss.y, r: FINAL_BOSS_HALF * 1.6, t: 0.7, color: '#eccc68' });
+    ultimateFlash = 0.6;
+
+    for(let i=0;i<8;i++){
+        effects.push({
+            x: finalBoss.x + (Math.random()-0.5)*80,
+            y: finalBoss.y + (Math.random()-0.5)*80,
+            r: 40 + Math.random()*60,
+            t: 0.6,
+            color: ['#ffffff','#ffeaa7','#fab1a0'][Math.floor(Math.random()*3)]
+        });
+    }
+
+    finalBoss.color = 'gray';
+    effects = effects.filter(e => !(e.type === 'moving_wave' && e.fromFinalBoss));
+
+    updateHud();
+}
+
+function updateFinalBossDefeat(dt){
+    if (!finalBoss) return;
+
+    // 🔥 죽는 애니메이션
+    if (finalBossPhase === 'dying') {
+        finalBoss.deathTimer -= dt;
+
+        const progress = 1 - Math.max(0, finalBoss.deathTimer / BOSS_DEATH_DURATION);
+        finalBoss.deathScale = 1 - progress * 0.75;
+        finalBoss.deathAlpha = 1 - progress * 0.9;
+        finalBoss.deathYOffset = progress * 50;
+
+        finalBoss.particleTimer -= dt;
+        if (finalBoss.particleTimer <= 0) {
+            finalBoss.particleTimer = 0.08;
+
+            effects.push({
+                x: finalBoss.x + (Math.random()-0.5)*finalBoss.half,
+                y: finalBoss.y + (Math.random()-0.5)*finalBoss.half,
+                r: 10 + Math.random()*20,
+                t: 0.5,
+                color: '#ffffff'
+            });
+        }
+
+        // 👉 죽음 끝 → 대기 상태
+        if (finalBoss.deathTimer <= 0) {
+            finalBossPhase = 'clearWait';
+            finalBoss.deathAlpha = 0;
+            clearTimer = 3;
+        }
+    }
+
+    // 🌟 클리어 연출 단계
+    else if (finalBossPhase === 'clearWait') {
+        clearTimer -= dt;
+
+        // 추가 이펙트
+        if (Math.random() < 0.2) {
+            effects.push({
+                x: Math.random()*canvas.width,
+                y: Math.random()*canvas.height,
+                r: 20 + Math.random()*40,
+                t: 0.6,
+                color: '#ffffff'
+            });
+        }
+
+        // 화면 점점 하얘짐
+        clearFade += dt * 0.5; // 속도 조절 가능
+        if (clearFade > 1) clearFade = 1;
+
+        // 👉 3초 후 엔딩
+        if (clearTimer <= 0) {
+            finalBoss = null;
+            finalBossPhase = null;
+            gameClear();
+        }
+    }
+}
+
+function spawnFinalBossHoming(fromX, fromY){
+    if (!finalBoss) return;
+    finalBossHoming.push({ x: fromX, y: fromY, speed: 1100, r: 12, t: 1 });
+}
+
+function pushFinalBossBullet(vx, vy, isRed){
+    finalBossBullets.push({
+        x: finalBoss.x,
+        y: finalBoss.y,
+        v: { x: vx, y: vy },
+        speed: FINAL_BOSS_BULLET_SPEED,
+        r: 14,
+        travel: 0,
+        maxDist: 2500,
+        t: 1,
+        isRed
+    });
+}
+
+function fireFinalBossBullet(){
+    if (!finalBoss || finalBoss.state !== 'idle') return;
+    const baseAngle = Math.atan2(player.y - finalBoss.y, player.x - finalBoss.x);
+    const triple = Math.random() < FINAL_J_TRIPLE_CHANCE;
+    const angles = triple
+        ? [baseAngle, baseAngle + FINAL_J_SPREAD_ANGLE, baseAngle - FINAL_J_SPREAD_ANGLE]
+        : [baseAngle];
+
+    angles.forEach(angle => {
+        const isRed = Math.random() < FINAL_J_RED_CHANCE;
+        pushFinalBossBullet(Math.cos(angle), Math.sin(angle), isRed);
+    });
+}
+
+function firePlayerLWaveAtBoss(){
+    if (!finalBoss) return;
+    const v = unit(finalBoss.x - player.x, finalBoss.y - player.y);
+    effects.push({
+        type: 'moving_wave',
+        startX: player.x,
+        startY: player.y,
+        v,
+        frontDist: 0,
+        speed: 1800,
+        thickness: 150,
+        maxDist: 2000,
+        t: 1.0,
+        color: 'rgba(74, 163, 255, 0.4)',
+        fromPlayer: true,
+        finalBossHit: false
+    });
+    effects.push({ x: player.x, y: player.y, r: 55, t: 0.25, color: '#4aa3ff' });
+}
+
+function tryParryFinalBossWave(ef){
+    if (!ef.fromFinalBoss || !ef.hitsPlayer || ef.t <= 0) return false;
+    if (player.parryTime <= 0 || player.parryType !== 'typeL') return false;
+    if (ef.alreadyParried) return false;
+
+    const dx = player.x - ef.startX;
+    const dy = player.y - ef.startY;
+    const proj = dx * ef.v.x + dy * ef.v.y;
+    const frontDist = ef.frontDist;
+    const edgeBand = 100;
+
+    if (proj < frontDist - edgeBand || proj > frontDist + player.r + 40) return false;
+
+    const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x);
+    if (perpDist > (ef.thickness || 200) / 2 + PARRY_RANGE) return false;
+
+    ef.alreadyParried = true;
+    ef.t = 0;
+    player.hasParriedAny = true;
+    firePlayerLWaveAtBoss();
+    if (comboTimer > 0) comboCount++;
+    else comboCount = 1;
+    comboTimer = 3;
+    effects.push({ x: player.x, y: player.y, r: 70, t: 0.3, color: '#4aa3ff' });
+    updateHud();
+    return true;
+}
+
+function startFinalBossKAttack(){
+    if (!finalBoss) return;
+    finalBoss.farTimer = 0;
+    finalBoss.state = 'k_warning';
+    finalBoss.color = 'orange';
+    finalBoss.kFxTimer = 0;
+    finalBossKWarn = {
+        x: player.x,
+        y: player.y,
+        side: PARRY_DIAMETER * 3,
+        timer: FINAL_K_WARN_DURATION,
+        duration: FINAL_K_WARN_DURATION
+    };
+    effects.push({ x: finalBoss.x, y: finalBoss.y, r: 60, t: 0.35, color: '#ff9f43' });
+    effects.push({ x: player.x, y: player.y, r: 45, t: 0.3, color: '#ff3838' });
+}
+
+function startFinalBossLAttack(){
+    if (!finalBoss) return;
+    finalBoss.midTimer = 0;
+    finalBoss.state = 'l_recovery';
+    finalBoss.color = 'blue';
+    finalBoss.attackTimer = FINAL_L_RECOVERY;
+    const v = unit(player.x - finalBoss.x, player.y - finalBoss.y);
+    effects.push({
+        type: 'moving_wave',
+        startX: finalBoss.x,
+        startY: finalBoss.y,
+        v,
+        frontDist: 0,
+        speed: 1800 * 0.2,
+        thickness: FINAL_BOSS_WAVE_THICKNESS,
+        maxDist: 1500,
+        t: 1.0,
+        color: 'rgba(74, 163, 255, 0.5)',
+        fromFinalBoss: true,
+        hitsPlayer: true
+    });
+    effects.push({ x: finalBoss.x, y: finalBoss.y, r: 55, t: 0.25, color: '#4aa3ff' });
+    bossSkillLAudio.currentTime = 0;
+    bossSkillLAudio.play();
+}
+
+function checkFinalBossWaveHitsPlayer(ef){
+    if (ef.type !== 'moving_wave' || !ef.hitsPlayer || ef.t <= 0) return;
+    if (tryParryFinalBossWave(ef)) return;
+    const dx = player.x - ef.startX;
+    const dy = player.y - ef.startY;
+    const proj = dx * ef.v.x + dy * ef.v.y;
+    const backDist = Math.max(0, ef.frontDist - ef.thickness);
+    const frontDist = ef.frontDist;
+    if (proj < backDist || proj > frontDist) return;
+    const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x);
+    if (perpDist <= (ef.thickness || 200) / 2 + player.r && player.invincible <= 0) {
+        player.hp -= 2;
+        player.invincible = 0.9;
+        effects.push({ x: player.x, y: player.y, r: 70, t: 0.25, color: '#e74c3c' });
+        if (player.hp <= 0) gameOver();
+    }
+}
+
+function updateFinalBoss(dt){
+    if (finalBossPhase === 'dying' || finalBossPhase === 'clearWait') {
+        updateFinalBossDefeat(dt);
+        return;
+    }
+    if (finalBossPhase !== 'fight' || !finalBoss) return;
+
+    if (finalBoss.state === 'k_warning') {
+        finalBoss.kFxTimer = (finalBoss.kFxTimer ?? 0) - dt;
+        if (finalBoss.kFxTimer <= 0) {
+            finalBoss.kFxTimer = 0.12;
+            effects.push({ x: finalBoss.x, y: finalBoss.y, r: 35, t: 0.12, color: '#ff7675' });
+            if (finalBossKWarn) {
+                effects.push({ x: finalBossKWarn.x, y: finalBossKWarn.y, r: 30, t: 0.12, color: '#ff9f43' });
+            }
+        }
+        if (finalBossKWarn) finalBossKWarn.timer -= dt;
+        if (finalBossKWarn && finalBossKWarn.timer <= 0) {
+            const tx = finalBossKWarn.x;
+            const ty = finalBossKWarn.y;
+            finalBoss.x = tx;
+            finalBoss.y = ty;
+            clampFinalBossPos();
+            finalBossKWarn = null;
+            effects.push({ x: tx, y: ty, r: 300, t: 0.35, color: '#ff3838' });
+            effects.push({ x: tx, y: ty, r: 55, t: 0.25, color: '#ff9f43' });
+            bossSkillKAudio.currentTime = 0;
+            bossSkillKAudio.play();
+            if (distance(player, finalBoss) < finalBoss.half + player.r + 15 && player.invincible <= 0) {
+                player.hp -= 2;
+                player.invincible = 0.9;
+                effects.push({ x: player.x, y: player.y, r: 80, t: 0.3, color: '#e74c3c' });
+                if (player.hp <= 0) gameOver();
+            }
+            finalBoss.state = 'k_recovery';
+            finalBoss.attackTimer = FINAL_K_RECOVERY;
+            finalBoss.color = finalBoss.enraged ? 'red' : 'gray';
+            spawnFinalBossKMinions();
+        }
+        return;
+    }
+
+    if (finalBoss.state === 'k_recovery') {
+        finalBoss.attackTimer -= dt;
+        if (finalBoss.attackTimer <= 0) {
+            // 각성 상태일 때만 연속 3번 K 공격
+            if (finalBoss.enraged && finalBoss.kAttackCount < 3) {
+                startFinalBossKAttack();
+            } else {
+                finalBoss.state = 'idle';
+                finalBoss.kAttackCount = 0;
+                finalBoss.color = finalBoss.enraged ? 'red' : 'gray';
+            }
+        }
+        return;
+    }
+
+    if (finalBoss.state === 'l_recovery') {
+        finalBoss.attackTimer -= dt;
+        if (finalBoss.attackTimer <= 0) {
+            finalBoss.state = 'idle';
+            finalBoss.color = finalBoss.enraged ? 'red' : 'gray';
+        }
+        return;
+    }
+
+    const dist = distToFinalBoss();
+    const v = unit(player.x - finalBoss.x, player.y - finalBoss.y);
+    finalBoss.x += v.x * FINAL_BOSS_SPEED * dt;
+    finalBoss.y += v.y * FINAL_BOSS_SPEED * dt;
+    clampFinalBossPos();
+
+    if (dist >= PARRY_RANGE * 6) finalBoss.farTimer += dt;
+    else finalBoss.farTimer = 0;
+
+    if (finalBoss.farTimer >= 5) {
+        startFinalBossKAttack();
+        return;
+    }
+
+    finalBoss.randomSkillCd -= dt * (finalBoss.enraged ? 1.2 : 1);
+    if (finalBoss.randomSkillCd <= 0) {
+        finalBoss.randomSkillCd = FINAL_RANDOM_SKILL_INTERVAL / (finalBoss.enraged ? 1.2 : 1);
+        if (Math.random() < FINAL_J_SKILL_CHANCE) {
+            fireFinalBossBullet();
+        } else {
+            startFinalBossLAttack();
+            return;
+        }
+    }
+
+    if (player.parryTime <= 0) finalBoss.parryHit = false;
+    else if (!finalBoss.parryHit && player.parryTime > 0 &&
+        (player.parryType === 'typeJ' || player.parryType === 'typeK' || player.parryType === 'typeL') &&
+        dist < PARRY_RANGE + finalBoss.half) {
+        finalBoss.parryHit = true;
+        player.hasParriedAny = true;
+        damageFinalBoss();
+        if (player.parryType === 'typeK') kParrySkillTimer = 1;
+        else if (player.parryType === 'typeL') lParrySkillTimer = 1;
+        else if (player.parryType === 'typeJ') jParrySkillTimer = 1;
+        if (comboTimer > 0) comboCount++;
+        else comboCount = 1;
+        comboTimer = 3;
+        updateHud();
+    }
+
+    if (dist < finalBoss.half + player.r && player.invincible <= 0) {
+        player.hp -= 2;
+        player.invincible = 0.9;
+        effects.push({ x: player.x, y: player.y, r: 75, t: 0.25, color: '#e74c3c' });
+        comboCount = 0;
+        comboTimer = 0;
+        kParrySkillTimer = 0;
+        lParrySkillTimer = 0;
+        jParrySkillTimer = 0;
+        updateHud();
+        if (player.hp <= 0) gameOver();
+    }
+}
+
+function updateFinalBossBullets(dt){
+    if (!finalBoss) {
+        finalBossBullets = [];
+        return;
+    }
+    finalBossBullets.forEach(b => {
+        b.x += b.v.x * b.speed * dt;
+        b.y += b.v.y * b.speed * dt;
+        b.travel += b.speed * dt;
+        if (b.travel >= b.maxDist) { b.t = 0; return; }
+
+        if (b.isRed && player.parryTime > 0 &&
+            (player.parryType === 'typeJ' || player.parryType === 'typeK' || player.parryType === 'typeL') &&
+            distance(b, player) < PARRY_RANGE + b.r) {
+            b.t = 0;
+            player.hasParriedAny = true;
+            spawnFinalBossHoming(b.x, b.y);
+            effects.push({ x: b.x, y: b.y, r: 55, t: 0.25, color: '#ff3838' });
+            return;
+        }
+
+        if (player.invincible <= 0 && distance(b, player) < b.r + player.r) {
+            player.hp -= 1;
+            player.invincible = 0.9;
+            effects.push({ x: player.x, y: player.y, r: 60, t: 0.2, color: '#e74c3c' });
+            b.t = 0;
+            if (player.hp <= 0) gameOver();
+        }
+    });
+    finalBossBullets = finalBossBullets.filter(b => b.t > 0 && b.travel < b.maxDist);
+}
+
+function updateFinalBossHoming(dt){
+    if (!finalBoss) {
+        finalBossHoming = [];
+        return;
+    }
+    finalBossHoming.forEach(m => {
+        const v = unit(finalBoss.x - m.x, finalBoss.y - m.y);
+        m.x += v.x * m.speed * dt;
+        m.y += v.y * m.speed * dt;
+        if (distance(m, finalBoss) < m.r + finalBoss.half) {
+            m.t = 0;
+            damageFinalBoss();
+            effects.push({ x: finalBoss.x, y: finalBoss.y, r: 70, t: 0.25, color: '#ff9f43' });
+        }
+    });
+    finalBossHoming = finalBossHoming.filter(m => m.t > 0);
+}
+
+function hitFinalBossWithWave(ef){
+    if (!ef.fromPlayer || ef.fromFinalBoss || ef.hitsPlayer || ef.finalBossHit || !finalBoss || finalBossPhase !== 'fight') return;
+    const dx = finalBoss.x - ef.startX;
+    const dy = finalBoss.y - ef.startY;
+    const proj = dx * ef.v.x + dy * ef.v.y;
+    const backDist = Math.max(0, ef.frontDist - ef.thickness);
+    const frontDist = ef.frontDist;
+    if (proj >= backDist && proj <= frontDist) {
+        const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x);
+        if (perpDist <= finalBoss.half + 50) {
+            ef.finalBossHit = true;
+            damageFinalBoss();
+        }
+    }
+}
+
+function drawFinalBoss(){
+    if (!finalBoss || finalBossPhase === 'clearWait') return;
+    if (finalBossPhase === 'dying' && finalBoss.deathAlpha <= 0) return;
+
+    let fill = '#888';
+    if (finalBossPhase === 'dying') {
+        fill = '#eccc68';
+    } else if (finalBoss.color === 'orange') fill = '#ff9f43';
+    else if (finalBoss.color === 'blue') fill = '#4aa3ff';
+    else if (finalBoss.color === 'red') fill = '#ff3838';
+
+    ctx.save();
+    
+    if (finalBossPhase === 'dying') {
+        ctx.globalAlpha = finalBoss.deathAlpha;
+        ctx.translate(finalBoss.x, finalBoss.y + finalBoss.deathYOffset);
+        ctx.scale(finalBoss.deathScale, finalBoss.deathScale);
+        ctx.translate(-finalBoss.x, -finalBoss.y);
+    }
+
+    ctx.fillStyle = fill;
+    ctx.fillRect(
+        finalBoss.x - finalBoss.half,
+        finalBoss.y - finalBoss.half,
+        finalBoss.half * 2,
+        finalBoss.half * 2
+    );
+    ctx.strokeStyle = finalBossPhase === 'dying' ? '#f5d76e' : '#555';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(
+        finalBoss.x - finalBoss.half,
+        finalBoss.y - finalBoss.half,
+        finalBoss.half * 2,
+        finalBoss.half * 2
+    );
+    
+    ctx.restore();
+
+    if (finalBossPhase !== 'fight') return;
+
+    const barW = finalBoss.half * 2;
+    const barH = 10;
+    const bx = finalBoss.x - barW / 2;
+    const by = finalBoss.y - finalBoss.half - 18;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = '#ff7675';
+    ctx.fillRect(bx, by, barW * (finalBoss.hp / finalBoss.maxHp), barH);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx, by, barW, barH);
+}
+
+function drawFinalBossBullet(b){
+    const tailX = b.x - b.v.x * b.r * 2.2;
+    const tailY = b.y - b.v.y * b.r * 2.2;
+    ctx.fillStyle = b.isRed ? '#ff3838' : '#dfe6e9';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = b.isRed ? '#c0392b' : '#636e72';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+}
+
+function drawFinalBossHoming(m){
+    if (!finalBoss) return;
+    ctx.fillStyle = '#ff9f43';
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#e17055';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(m.x, m.y);
+    ctx.lineTo(finalBoss.x, finalBoss.y);
+    ctx.stroke();
 }
 
 function fireBossBullet(){
@@ -572,7 +1378,7 @@ function updateHomingMissiles(dt){
 }
 
 function hitBossWithWave(ef){
-    if (ef.bossHit || !miniBoss || miniBoss.state !== 'active') return;
+    if (!ef.fromPlayer || ef.fromFinalBoss || ef.bossHit || !miniBoss || miniBoss.state !== 'active') return;
     const dx = miniBoss.x - ef.startX;
     const dy = miniBoss.y - ef.startY;
     const proj = dx * ef.v.x + dy * ef.v.y;
@@ -618,6 +1424,11 @@ function spawnEnemy(){
 // [6] 게임 상태 실시간 물리 루프 처리 함수
 // ==========================================
 function update(dt){
+    if (mode === 'ending') {
+        updateEndingCredits(dt);
+        return;
+    }
+    if (mode === 'paused') return;
     if(mode!=='play'||!player)return;
 
     player.dashTime=Math.max(0,player.dashTime-dt);
@@ -627,7 +1438,7 @@ function update(dt){
     if(player.parryTime > 0){
         player.parryTime -= dt;
         if(player.parryTime <= 0){
-            if(!player.hasParriedAny){ player.parryCooldown = 0.8; } 
+            if(!player.hasParriedAny){ player.parryCooldown = selectedSkill === 3 ? 0.4 : 0.8; } 
             player.parryType = null;
         }
     }
@@ -656,16 +1467,25 @@ function update(dt){
     player.x=Math.max(player.r,Math.min(worldW-player.r,player.x));
     player.y=Math.max(player.r,Math.min(worldH-player.r,player.y));
 
-    spawnTimer-=dt;
-    if(spawnTimer<=0){
-        spawnEnemy();
-        let interval = Math.max(.45, 1.2 - stage * .08);
-        if (stage === 1 && miniBoss && miniBoss.state === 'active') {
-            interval /= BOSS_ACTIVE_SPAWN_RATE;
-        } else if (stage === 1 && miniBoss && miniBoss.state === 'dying') {
-            interval *= 2.5;
+    if (stage < 2 && !(miniBoss && miniBoss.state === 'dying')) {
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) {
+            spawnEnemy();
+            let interval = Math.max(.45, 1.2 - stage * .08);
+            if (stage === 1 && miniBoss && miniBoss.state === 'active') {
+                interval /= BOSS_ACTIVE_SPAWN_RATE;
+            }
+            spawnTimer = interval;
         }
-        spawnTimer = interval;
+    }
+
+    updateFinalBossIntro(dt);
+    if (finalBoss && (finalBossPhase === 'fight' || finalBossPhase === 'dying' || finalBossPhase === 'clearWait')) {
+        updateFinalBoss(dt);
+        if (finalBossPhase === 'fight') {
+            updateFinalBossBullets(dt);
+            updateFinalBossHoming(dt);
+        }
     }
 
     updateBossDefeat(dt);
@@ -675,7 +1495,7 @@ function update(dt){
         updateHomingMissiles(dt);
     }
 
-    enemies.forEach(e=>{
+    if (enemies.length > 0) enemies.forEach(e=>{
         if (e.dead) return; 
 
         const dist = distance(e, player);
@@ -744,23 +1564,23 @@ function update(dt){
         }
 
         effects.forEach(ef => {
-            if (ef.type === 'moving_wave' && !e.dead) {
-                const dx = e.x - ef.startX;
-                const dy = e.y - ef.startY;
-                const proj = dx * ef.v.x + dy * ef.v.y; 
-                
-                const backDist = Math.max(0, ef.frontDist - ef.thickness);
-                const frontDist = ef.frontDist;
+            if (ef.type !== 'moving_wave' || ef.fromFinalBoss || !ef.fromPlayer || e.dead) return;
 
-                if (proj >= backDist && proj <= frontDist) {
-                    const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x); 
-                    if (perpDist <= 100) { 
-                        e.dead = true; parryCount++; comboCount++; comboTimer = 3;
-                        effects.push({x: e.x, y: e.y, r: 60, t: 0.2, color: '#ffcd03'});
-                        
-                        advanceStageFromParries();
-                        updateHud(); 
-                    }
+            const dx = e.x - ef.startX;
+            const dy = e.y - ef.startY;
+            const proj = dx * ef.v.x + dy * ef.v.y; 
+            
+            const backDist = Math.max(0, ef.frontDist - ef.thickness);
+            const frontDist = ef.frontDist;
+
+            if (proj >= backDist && proj <= frontDist) {
+                const perpDist = Math.abs(dx * (-ef.v.y) + dy * ef.v.x); 
+                if (perpDist <= 100) {
+                    e.dead = true; parryCount++; comboCount++; comboTimer = 3;
+                    effects.push({x: e.x, y: e.y, r: 60, t: 0.2, color: '#ffcd03'});
+                    
+                    advanceStageFromParries();
+                    updateHud();
                 }
             }
         });
@@ -794,7 +1614,11 @@ function update(dt){
     });
 
     effects.forEach(ef => {
-        if (ef.type === 'moving_wave') hitBossWithWave(ef);
+        if (ef.type === 'moving_wave') {
+            hitBossWithWave(ef);
+            hitFinalBossWithWave(ef);
+            checkFinalBossWaveHitsPlayer(ef);
+        }
     });
     removeDeadEnemies();
 
@@ -824,12 +1648,18 @@ function update(dt){
             damageMiniBoss();
             ef.t = 0;
         }
+        if (ef.t > 0 && finalBoss && finalBossPhase === 'fight' &&
+            distance(ef, finalBoss) < ef.r + finalBoss.half) {
+            damageFinalBoss();
+            ef.t = 0;
+        }
     });
     removeDeadEnemies();
     
     effects.forEach(e => {
         if (e.type === 'moving_wave') {
-            e.frontDist += e.speed * dt; 
+            e.frontDist += e.speed * dt;
+            checkFinalBossWaveHitsPlayer(e);
             if (e.frontDist >= e.maxDist + e.thickness) { e.t = 0; } 
             else { e.t = 1.0; } 
         } else if (e.type !== 'missile') {
@@ -843,31 +1673,108 @@ function update(dt){
 }
 
 function gameOver(){
+    // 🌟 모든 보스 배경음악 정지
+    stage1bossBackgroundSound.pause();
+    stage1bossBackgroundSound.currentTime = 0;
+    stage2bossBackgroundSound.pause();
+    stage2bossBackgroundSound.currentTime = 0;
+
     mode='over'; 
     setHudVisibility(false); 
     const score = totalScore + parryCount;
-    const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
-    ranks.push(score); ranks.sort((a,b)=>b-a);
-    localStorage.setItem('parryRanks',JSON.stringify(ranks.slice(0,10)));
     
     if(finalScore) finalScore.textContent=`최종 점수: ${score}`;
     openScreen('gameOver');
 }
 
+function pauseGame(){
+    mode = 'paused';
+    setHudVisibility(false);
+    hideScreens();
+    openScreen('pauseMenu');
+}
+
+function resumeGame(){
+    if (mode !== 'paused') return;
+    mode = 'play';
+    hideScreens();
+    setHudVisibility(true);
+}
+
+function returnToMenu(){
+    mode = 'menu';
+    guideReturnToPause = false;
+    clearFade = 0;
+    endingFade = 0;
+    creditScrollY = 0;
+    creditStartTimer = 0;
+    endingDoneTimer = 0;
+    finalBoss = null;
+    finalBossPhase = null;
+    setHudVisibility(false);
+    hideScreens();
+    openScreen('menu');
+}
+
 function gameClear(){
-    mode='ending'; 
-    setHudVisibility(false); 
-    const score = totalScore + parryCount;
-    const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');
-    ranks.push(score); ranks.sort((a,b)=>b-a);
-    localStorage.setItem('parryRanks',JSON.stringify(ranks.slice(0,10)));
-    openScreen('endingCredit');
+    mode = 'ending';
+    setHudVisibility(false);
+    hideScreens();
+    const clearTime = ((Date.now() - gameStartTime) / 1000).toFixed(2);
+    const ranks = JSON.parse(localStorage.getItem('parryRanks') || '[]');
+    ranks.push(parseFloat(clearTime));
+    ranks.sort((a, b) => a - b);
+    localStorage.setItem('parryRanks', JSON.stringify(ranks.slice(0, 10)));
+    endingFade = clearFade > 0 ? clearFade : 1;
+    clearFade = 0;
+    creditScrollY = H + 120;
+    creditStartTimer = 1.0;
+    endingDoneTimer = 0;
+}
+
+function updateEndingCredits(dt){
+    if (creditStartTimer > 0) {
+        creditStartTimer -= dt;
+        endingFade = Math.max(0, endingFade - dt * 1.2);
+        return;
+    }
+
+    creditScrollY -= CREDIT_SCROLL_SPEED * dt;
+
+    const lastLineY = creditScrollY + (CREDIT_LINES.length - 1) * CREDIT_LINE_HEIGHT;
+    if (lastLineY < 0) {
+        endingDoneTimer += dt;
+        if (endingDoneTimer >= 1.0) returnToMenu();
+    } else {
+        endingDoneTimer = 0;
+    }
+}
+
+function drawEndingCredits(){
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    if (creditStartTimer <= 0) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        CREDIT_LINES.forEach((line, i) => {
+            ctx.fillText(line, W / 2, creditScrollY + i * CREDIT_LINE_HEIGHT);
+        });
+    }
+
+    if (endingFade > 0) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${endingFade})`;
+        ctx.fillRect(0, 0, W, H);
+    }
 }
 
 function updateHud(){
     if(!player)return;
     const hp = Math.max(0, player.hp);
-    hpBox.textContent='체력: '+'❤'.repeat(hp)+'♡'.repeat(Math.max(0, 3-hp));
+    const maxHp = player.maxHp || 3;
+    hpBox.textContent='체력: '+'❤'.repeat(hp)+'♡'.repeat(Math.max(0, maxHp - hp));
     stageBox.textContent=`Stage ${stage}`;
     if (stage === 1 && miniBoss) {
         if (miniBoss.state === 'dormant') {
@@ -876,6 +1783,18 @@ function updateHud(){
             scoreBox.textContent = '보스 격파! Stage 2 이동 중...';
         } else {
             scoreBox.textContent = `보스 HP ${miniBoss.hp}/${miniBoss.maxHp} | Parry ${parryCount}/${needParry}`;
+        }
+    } else if (stage >= 2 && finalBossPhase) {
+        if (finalBossPhase === 'warn') {
+            scoreBox.textContent = `최종보스 경고 ${Math.ceil(finalBossWarn?.timer || 0)}초`;
+        } else if (finalBossPhase === 'dying') {
+            scoreBox.textContent = '최종보스 격파!';
+        } else if (finalBossPhase === 'clearWait') {
+            scoreBox.textContent = 'STAGE CLEAR!';
+        } else if (finalBoss) {
+            scoreBox.textContent = `최종보스 HP ${finalBoss.hp}/${finalBoss.maxHp}`;
+        } else {
+            scoreBox.textContent = 'STAGE CLEAR!';
         }
     } else {
         scoreBox.textContent = stage===1?`Parry ${parryCount} / ${needParry}`:`Score ${totalScore+parryCount} | Parry ${parryCount} / ${needParry}`;
@@ -899,7 +1818,7 @@ function updateHud(){
     }
 }
 
-function showRank(){mode='rank';const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');if(rankList)rankList.innerHTML=ranks.length?ranks.map(s=>`<li>${s}점</li>`).join(''):'<li>기록 없음</li>';openScreen('rank')}
+function showRank(){mode='rank';const ranks=JSON.parse(localStorage.getItem('parryRanks')||'[]');if(rankList)rankList.innerHTML=ranks.length?ranks.map(s=>`<li>${s.toFixed(2)}초</li>`).join(''):'<li>기록 없음</li>';openScreen('rank')}
 
 function drawGrid(camX,camY){
     ctx.fillStyle='#202a38'; ctx.fillRect(0,0,W,H);
@@ -1013,6 +1932,11 @@ function drawPlayer(){
 }
 
 function draw(){
+    if (mode === 'ending') {
+        drawEndingCredits();
+        return;
+    }
+
     const px=player?player.x:worldW/2, py=player?player.y:worldH/2;
     
     const targetCamX = Math.max(0, Math.min(worldW - W, px - W/2));
@@ -1028,15 +1952,20 @@ function draw(){
     if(!player) return;
     ctx.save(); ctx.translate(-camX,-camY);
     
+    drawRedWarningZone(finalBossWarn);
+    drawRedWarningZone(finalBossKWarn);
     drawMiniBoss();
+    drawFinalBoss();
     enemies.forEach(drawEnemy);
     bossBullets.forEach(drawBossBullet);
     homingMissiles.forEach(drawHomingMissile);
+    finalBossBullets.forEach(drawFinalBossBullet);
+    finalBossHoming.forEach(drawFinalBossHoming);
     
     effects.forEach(e=>{
         if (e.type === 'moving_wave') {
             ctx.save();
-            ctx.fillStyle = 'rgba(74, 163, 255, 0.4)';      
+            ctx.fillStyle = e.color || 'rgba(74, 163, 255, 0.4)';
             ctx.strokeStyle = 'rgba(100, 210, 255, 0.9)';   
             ctx.lineWidth = 4;
             
@@ -1044,10 +1973,11 @@ function draw(){
             ctx.rotate(Math.atan2(e.v.y, e.v.x)); 
             
             const backDist = Math.max(0, e.frontDist - e.thickness);
-            const wLen = e.frontDist - backDist; 
+            const wLen = e.frontDist - backDist;
+            const halfThick = (e.thickness || 200) / 2;
             
-            ctx.fillRect(backDist, -100, wLen, 200); 
-            ctx.strokeRect(backDist, -100, wLen, 200);
+            ctx.fillRect(backDist, -halfThick, wLen, e.thickness || 200); 
+            ctx.strokeRect(backDist, -halfThick, wLen, e.thickness || 200);
             ctx.restore();
         } else if (e.type === 'missile') {
             const tailX = e.x - e.v.x * e.r * 2.2;
@@ -1080,6 +2010,13 @@ function draw(){
         ctx.save();
         ctx.fillStyle = `rgba(255, 255, 255, ${ultimateFlash})`;
         ctx.fillRect(0, 0, W, H); 
+        ctx.restore();
+    }
+
+    if (clearFade > 0) {
+        ctx.save();
+        ctx.fillStyle = `rgba(255, 255, 255, ${clearFade})`;
+        ctx.fillRect(0, 0, W, H);
         ctx.restore();
     }
 }
